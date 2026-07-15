@@ -1,0 +1,50 @@
+{
+  "adapter": "wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize",
+      "kind": "initialize",
+      "sequence": 1
+    },
+    {
+      "action_id": "open-sse",
+      "kind": "open_stream",
+      "sequence": 2
+    },
+    {
+      "action_id": "resume-1",
+      "cursor": "cursor-1",
+      "kind": "resume",
+      "sequence": 3
+    },
+    {
+      "action_id": "resume-2",
+      "cursor": "cursor-2",
+      "kind": "resume",
+      "sequence": 4
+    }
+  ],
+  "cleanup": {
+    "client_closed": true,
+    "listener_closed": true
+  },
+  "fixture_id": "second-sse-resume-token-loss",
+  "normalized_events": [
+    {
+      "final_cursor": "cursor-3",
+      "kind": "sse_sequence",
+      "last_event_ids": [
+        null,
+        "cursor-1",
+        "cursor-2"
+      ],
+      "sequence": 5,
+      "session_id": "[SESSION_1]"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 0,
+  "transport": "streamable-http"
+}

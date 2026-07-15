@@ -19,12 +19,16 @@ Install [uv](https://docs.astral.sh/uv/), then run:
 ```console
 uv sync --locked
 uv run pytest
+uv run python scripts/run_m1_acceptance.py
 uv build
 ```
 
-The lockfile selects CPython 3.12. Tests must not use another interpreter.
+The project pins CPython 3.12 through `.python-version`. Tests must not use
+another interpreter, and `uv.lock` fixes the dependency graph.
+The M1 command writes one real wire trace per controlled fixture under
+`artifacts/m1/`. It does not run shrinking or the ten-replay v0.1 gate, which
+belongs to M2.
 
 ## License
 
 Apache-2.0.
-

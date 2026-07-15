@@ -35,6 +35,7 @@ packages = ["src/mcp_statecheck"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+filterwarnings = ["error"]
 
 [tool.ruff]
 target-version = "py312"

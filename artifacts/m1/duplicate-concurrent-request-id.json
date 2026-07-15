@@ -1,0 +1,50 @@
+{
+  "adapter": "wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize",
+      "kind": "initialize",
+      "sequence": 1
+    },
+    {
+      "action_id": "initialized",
+      "kind": "initialized",
+      "sequence": 2
+    },
+    {
+      "action_id": "call-a",
+      "kind": "request",
+      "mcp_request_id": 7,
+      "sequence": 3
+    },
+    {
+      "action_id": "call-b",
+      "kind": "request",
+      "mcp_request_id": 7,
+      "sequence": 4
+    }
+  ],
+  "cleanup": {
+    "child_reaped": true
+  },
+  "fixture_id": "duplicate-concurrent-request-id",
+  "normalized_events": [
+    {
+      "kind": "response",
+      "mcp_request_id": 7,
+      "sequence": 5,
+      "which": "second"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 7,
+      "sequence": 6,
+      "which": "first"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 0,
+  "transport": "stdio"
+}

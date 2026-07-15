@@ -1,0 +1,54 @@
+{
+  "adapter": "wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize",
+      "kind": "initialize",
+      "sequence": 1
+    },
+    {
+      "action_id": "initialized",
+      "kind": "initialized",
+      "sequence": 2
+    },
+    {
+      "action_id": "call-a",
+      "kind": "request",
+      "mcp_request_id": 21,
+      "sequence": 3
+    },
+    {
+      "action_id": "cancel-a",
+      "kind": "cancel",
+      "sequence": 4,
+      "target": "call-a"
+    },
+    {
+      "action_id": "call-b",
+      "kind": "request",
+      "mcp_request_id": 22,
+      "sequence": 5
+    }
+  ],
+  "cleanup": {
+    "child_reaped": true
+  },
+  "fixture_id": "late-response-after-cancellation",
+  "normalized_events": [
+    {
+      "kind": "late_response",
+      "sequence": 6,
+      "target_action_id": "call-a"
+    },
+    {
+      "kind": "response",
+      "sequence": 7,
+      "target_action_id": "call-b"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 0,
+  "transport": "stdio"
+}

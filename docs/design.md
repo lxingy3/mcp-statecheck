@@ -71,6 +71,17 @@ value.
 M1 fixtures preserve the observations needed for later detection. They do not
 claim the final fixture gate, which requires M2 shrinking and replay.
 
+The local M1 check is:
+
+```console
+uv run python scripts/run_m1_acceptance.py
+```
+
+It runs the full M1 suite, including all five peers, under an outer hard
+deadline. It writes deterministic traces plus `artifacts/m1/acceptance.json`.
+A passing M1 report confirms wire behavior, recording, redaction, and cleanup
+only.
+
 ## v0.1 publication gate
 
 The repository remains private until all of these are true:
@@ -85,4 +96,3 @@ The repository remains private until all of these are true:
 - secret scanning passes;
 - JSON, JUnit, SARIF, and offline HTML reports pass tests;
 - no known P0 or P1 defect remains.
-

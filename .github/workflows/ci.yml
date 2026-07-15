@@ -22,7 +22,7 @@ jobs:
           enable-cache: true
           python-version: "3.12"
       - run: uv sync --locked
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
       - run: uv run pytest
       - run: uv build

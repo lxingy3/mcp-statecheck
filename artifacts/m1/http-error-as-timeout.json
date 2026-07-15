@@ -1,0 +1,28 @@
+{
+  "adapter": "wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize",
+      "kind": "send",
+      "method": "initialize",
+      "sequence": 1
+    }
+  ],
+  "cleanup": {
+    "client_closed": true,
+    "listener_closed": true
+  },
+  "fixture_id": "http-error-as-timeout",
+  "normalized_events": [
+    {
+      "kind": "http_error",
+      "sequence": 2,
+      "status": 503
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 0,
+  "transport": "streamable-http"
+}
