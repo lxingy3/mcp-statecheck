@@ -1,0 +1,34 @@
+schema_version = 1
+verified_at = "2026-07-15T00:00:00+08:00"
+protocol_versions = ["2025-06-18", "2025-11-25"]
+transports = ["stdio", "streamable-http"]
+
+[[runners]]
+id = "python-v1"
+runtime = "python"
+package = "mcp"
+version = "1.28.1"
+
+[[runners]]
+id = "python-v2"
+runtime = "python"
+package = "mcp"
+version = "2.0.0b2"
+prerelease = true
+
+[[runners]]
+id = "typescript-v1"
+runtime = "node"
+package = "@modelcontextprotocol/sdk"
+version = "1.29.0"
+
+[[runners]]
+id = "typescript-v2"
+runtime = "node"
+packages = [
+  "@modelcontextprotocol/client@2.0.0-beta.4",
+  "@modelcontextprotocol/server@2.0.0-beta.4",
+  "@modelcontextprotocol/core@2.0.0-beta.4",
+]
+prerelease = true
+
