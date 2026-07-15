@@ -83,6 +83,11 @@ def main() -> int:
     if returncode:
         sys.stderr.write(stdout)
         sys.stderr.write(stderr)
+    else:
+        print(
+            f"M1 acceptance passed: {tests_passed} tests and "
+            f"{len(generated_traces)} fixture traces written to {args.output}"
+        )
     return returncode
 
 
