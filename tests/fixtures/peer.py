@@ -186,6 +186,10 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
             raise RuntimeError("fixture HTTP thread did not stop")
         probe = socket.socket()
         try:
+            # Linux keeps recently closed connections in TIME_WAIT. Matching
+            # the server's reuse policy distinguishes that state from a live
+            # listener while still permitting an immediate bind check.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             probe.bind((self.host, self.port))
         finally:
             probe.close()
