@@ -82,6 +82,25 @@ deadline. It writes deterministic traces plus `artifacts/m1/acceptance.json`.
 A passing M1 report confirms wire behavior, recording, redaction, and cleanup
 only.
 
+## M2 implementation status
+
+M2 is being delivered as one complete fixture slice at a time. The first slice,
+`request-before-initialized`, is complete:
+
+- a seeded Hypothesis `RuleBasedStateMachine` generates canonical actions and
+  executes each failing candidate against a real stdio peer;
+- the lifecycle invariant classifies the client's non-ping request while the
+  initialize response is still outstanding;
+- the failure signature excludes internal action IDs and wire request IDs;
+- Hypothesis shrinks the trace to `initialize` followed by `tools/list`;
+- the minimized trace is saved, loaded back from disk, and replayed against ten
+  fresh peer processes with one signature and clean exits.
+
+The versioned evidence is checked in at
+`artifacts/m2/request-before-initialized.json`. This is not the M2 milestone
+gate: the other four controlled defects and the differential oracle remain to
+be completed.
+
 ## v0.1 publication gate
 
 The repository remains private until all of these are true:

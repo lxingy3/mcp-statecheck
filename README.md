@@ -11,13 +11,14 @@ cancel one, reconnect an SSE stream, or recover from an expired session.
 wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
-> This project is pre-alpha and remains private. M0 and M1 are complete.
-> Generation, differential comparison, shrinking, replay, SDK runners, reports,
-> and the CLI are scheduled for M2 through M4.
+> This project is pre-alpha and remains private. M0 and M1 are complete; M2 is
+> in progress. The first seeded failure now generates, shrinks, persists, and
+> replays over a real stdio peer. Differential comparison, the remaining four
+> fixtures, SDK runners, reports, and the CLI are still ahead.
 
 ## What works today
 
-| Area | M1 implementation |
+| Area | Current implementation |
 | --- | --- |
 | Protocol state | Lifecycle, capability negotiation, pending requests, cancellation, streams, and logical sessions |
 | Request identity | Internal action IDs remain separate from MCP request IDs, including duplicate concurrent IDs |
@@ -25,6 +26,7 @@ wire behavior as deterministic, redacted traces.
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
+| M2 slice 1 | Seeded RuleBasedStateMachine generation, stable lifecycle signature, shrinking, saved-trace reload, and 10-run replay |
 
 ```mermaid
 flowchart LR
@@ -34,12 +36,13 @@ flowchart LR
     D --> E["Wire observations"]
     B --> F["Versioned trace"]
     E --> F
-    F -. "M2" .-> G["Compare, shrink, replay"]
+    F --> G["Hypothesis shrink<br/>(first M2 slice)"]
+    G --> H["Saved-trace reload<br/>and 10-run replay"]
 ```
 
 The checked-in [M1 acceptance report](artifacts/m1/acceptance.json) records
-Python 3.12.13, 80 passing tests, and all five fixture checks within a
-60-second hard deadline. CI runs the same locked project on Ubuntu and Windows.
+Python 3.12.13, 97 passing tests, and all five M1 fixture checks within a
+60-second hard deadline. CI runs the locked project on Ubuntu and Windows.
 
 ## Reproduce the M1 baseline
 
@@ -62,7 +65,7 @@ A successful report currently includes:
   "milestone": "M1",
   "python": "3.12.13",
   "status": "passed",
-  "tests_passed": 80
+  "tests_passed": 97
 }
 ```
 
@@ -97,7 +100,17 @@ state separately:
 ```
 
 M1 preserves the observations required for later detection. It does not yet
-shrink or replay failures. Those checks belong to M2.
+claim the final five-fixture gate. The first M2 slice now closes that loop for
+`request-before-initialized`:
+
+```console
+$ uv run python scripts/run_m2_slice.py
+M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/request-before-initialized.json
+```
+
+Hypothesis reduces the generated sequence to `initialize` followed by
+`tools/list`. The saved trace is then loaded from disk and replayed against ten
+fresh peer processes; every run produces the same failure signature.
 
 ## Project boundaries
 
@@ -117,7 +130,7 @@ outside the v0.1 scope.
 | --- | --- | --- |
 | M0 | Complete | Reproducible Python 3.12 environment, lockfile, design baseline, and cross-platform CI |
 | M1 | Complete | Canonical model, wire transports, trace recorder, and controlled peers |
-| M2 | Next | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
+| M2 | In progress (1/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Planned | Isolated Python and TypeScript v1/v2 SDK runners |
 | M4 | Planned | CLI, JUnit/SARIF/HTML reports, GitHub Action, documentation, and the v0.1 gate |
 
@@ -129,6 +142,7 @@ The repository will not be made public or released to PyPI until the full
 - [Design baseline](docs/design.md)
 - [MCP landscape snapshot](docs/research/2026-07-15-landscape.md)
 - [M1 acceptance report](artifacts/m1/acceptance.json)
+- [First M2 minimized failure](artifacts/m2/request-before-initialized.json)
 
 ## License
 
