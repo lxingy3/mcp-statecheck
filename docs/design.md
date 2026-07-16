@@ -84,8 +84,8 @@ only.
 
 ## M2 implementation status
 
-M2 is being delivered as one complete fixture slice at a time. The first slice,
-`request-before-initialized`, is complete:
+M2 is being delivered as one complete fixture slice at a time. Two slices are
+complete:
 
 - a seeded Hypothesis `RuleBasedStateMachine` generates canonical actions and
   executes each failing candidate against a real stdio peer;
@@ -96,14 +96,20 @@ M2 is being delivered as one complete fixture slice at a time. The first slice,
 - the minimized trace is saved, loaded back from disk, and replayed against ten
   fresh peer processes with one signature and clean exits.
 
-The versioned evidence is checked in at
-`artifacts/m2/request-before-initialized.json`. This is not the M2 milestone
-gate: the other four controlled defects and the differential oracle remain to
-be completed.
+`request-before-initialized` shrinks to `initialize` followed by `tools/list`.
+`duplicate-concurrent-request-id` shrinks to the four outbound actions defined
+by the fixture plus one explicit initialize-response barrier used to preserve
+wire order. Its invariant classifies the requestor's ID reuse; reversed,
+ambiguous responses remain observations and are not attributed to the server.
 
-## v0.1 publication gate
+The versioned evidence is checked in under `artifacts/m2/`. This is not the M2
+milestone gate: the other three controlled defects and the differential oracle
+remain to be completed.
 
-The repository remains private until all of these are true:
+## v0.1 release gate
+
+The source repository may be public during development. No v0.1 GitHub Release
+or PyPI publication happens until all of these are true:
 
 - stdio and Streamable HTTP work against real servers;
 - generation, shrinking, and replay work;
