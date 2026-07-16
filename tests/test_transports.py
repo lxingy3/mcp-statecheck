@@ -87,6 +87,19 @@ def test_stdio_rejects_shell_strings_and_reaps_on_timeout() -> None:
     run(scenario)
 
 
+def test_transport_deadlines_must_be_finite() -> None:
+    for timeout in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="finite"):
+            StdioTransport([sys.executable, "-c", "pass"], timeout=timeout)
+        with pytest.raises(ValueError, match="finite"):
+            StdioTransport(
+                [sys.executable, "-c", "pass"],
+                shutdown_timeout=timeout,
+            )
+        with pytest.raises(ValueError, match="finite"):
+            StreamableHTTPTransport("https://example.invalid/mcp", timeout=timeout)
+
+
 def test_stdio_supports_cwd_and_copies_environment(tmp_path: Path) -> None:
     async def scenario() -> None:
         script = (

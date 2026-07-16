@@ -49,6 +49,10 @@ class PeerState:
 
         if method == "tools/list":
             response = _result(request_id, {"tools": []})
+            if self.mode == "unknown-response-id":
+                return [_result(999, {}), response]
+            if self.mode == "invalid-json-rpc-error":
+                return [{"jsonrpc": "2.0", "id": request_id, "error": "broken"}]
             if self.pending_initialize is not None:
                 initialize = _result(self.pending_initialize["id"], INITIALIZE_RESULT)
                 self.pending_initialize = None

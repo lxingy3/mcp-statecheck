@@ -1,0 +1,140 @@
+{
+  "adapter": "wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize-pending",
+      "capabilities": {},
+      "kind": "initialize",
+      "mcp_request_id": 1,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2025-11-25",
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "tools-list-2",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 2,
+      "method": "tools/list",
+      "payload": {},
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 2,
+      "stream_id": null,
+      "target_action_id": null
+    }
+  ],
+  "cleanup": {
+    "shrink_peer_reaped": true,
+    "shrink_peer_returncode": 0
+  },
+  "failure": {
+    "evidence": {
+      "direction": "client_to_server",
+      "lifecycle_boundary": "awaiting_initialize_response",
+      "method": "tools/list",
+      "subject": "client"
+    },
+    "kind": "lifecycle.client_request_before_initialize_response",
+    "minimized_reproducer": [
+      {
+        "action_id": "initialize-pending",
+        "capabilities": {},
+        "kind": "initialize",
+        "mcp_request_id": 1,
+        "method": null,
+        "payload": null,
+        "protocol_version": "2025-11-25",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "tools-list-2",
+        "capabilities": null,
+        "kind": "request",
+        "mcp_request_id": 2,
+        "method": "tools/list",
+        "payload": {},
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      }
+    ],
+    "signature": "mcp-statecheck:v1:62237ccbaf578ac57aedd89b1b34c81c01913f6541dc3d3d414fbc180fd25dc2",
+    "spec_reference": "https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization",
+    "trigger_action_id": "tools-list-2"
+  },
+  "fixture_id": "request-before-initialized",
+  "generation": {
+    "engine": "Hypothesis RuleBasedStateMachine",
+    "settings": {
+      "database": null,
+      "deadline": null,
+      "max_examples": 50,
+      "phases": [
+        "generate",
+        "shrink"
+      ],
+      "report_multiple_bugs": false,
+      "stateful_step_count": 8
+    },
+    "version": "6.156.6"
+  },
+  "normalized_events": [
+    {
+      "kind": "response",
+      "mcp_request_id": 2,
+      "outcome": "success",
+      "payload": {
+        "tools": []
+      },
+      "sequence": 3,
+      "target_action_id": "tools-list-2"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 1,
+      "outcome": "success",
+      "payload": {
+        "capabilities": {
+          "tools": {}
+        },
+        "protocolVersion": "2025-11-25",
+        "serverInfo": {
+          "name": "controlled-peer",
+          "version": "0.1"
+        }
+      },
+      "sequence": 4,
+      "target_action_id": "initialize-pending"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "replay": {
+    "attempts": 10,
+    "matched": 10,
+    "returncodes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "signature": "mcp-statecheck:v1:62237ccbaf578ac57aedd89b1b34c81c01913f6541dc3d3d414fbc180fd25dc2"
+  },
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 20260716,
+  "transport": "stdio"
+}

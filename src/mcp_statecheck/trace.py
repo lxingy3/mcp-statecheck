@@ -280,6 +280,7 @@ class TraceRecorder:
         environment: Mapping[str, str] | None = None,
         fixture_id: str | None = None,
         cleanup: Mapping[str, object] | None = None,
+        generation: Mapping[str, object] | None = None,
     ) -> None:
         self._lock = Lock()
         self._redactor = _Redactor(secret_values, environment)
@@ -295,9 +296,15 @@ class TraceRecorder:
             self._metadata["fixture_id"] = self._redactor.redact(fixture_id)
         if cleanup is not None:
             self._metadata["cleanup"] = self._redactor.redact(cleanup)
+        if generation is not None:
+            redacted_generation = self._redactor.redact(generation)
+            if not isinstance(redacted_generation, dict):
+                raise AssertionError("generation must be an object")
+            self._metadata["generation"] = redacted_generation
         self._canonical_actions: list[dict[str, JsonValue]] = []
         self._normalized_events: list[dict[str, JsonValue]] = []
         self._failure: dict[str, JsonValue] | None = None
+        self._replay: dict[str, JsonValue] | None = None
         self._next_sequence = 1
 
     def _record(
@@ -332,23 +339,74 @@ class TraceRecorder:
         spec_reference: str,
         signature: str,
         minimized_reproducer: Sequence[Mapping[str, object]],
+        trigger_action_id: str | None = None,
+        evidence: Mapping[str, object] | None = None,
     ) -> None:
         """Attach the single failure represented by this trace."""
 
+        if trigger_action_id is not None and not isinstance(trigger_action_id, str):
+            raise TypeError("failure trigger_action_id must be a string or null")
         with self._lock:
             if self._failure is not None:
                 raise RuntimeError("trace failure is already set")
-            failure = self._redactor.redact(
-                {
-                    "kind": kind,
-                    "spec_reference": spec_reference,
-                    "signature": signature,
-                    "minimized_reproducer": list(minimized_reproducer),
-                }
-            )
+            failure_data: dict[str, object] = {
+                "kind": kind,
+                "spec_reference": spec_reference,
+                "signature": signature,
+                "minimized_reproducer": list(minimized_reproducer),
+            }
+            if trigger_action_id is not None:
+                failure_data["trigger_action_id"] = trigger_action_id
+            if evidence is not None:
+                failure_data["evidence"] = evidence
+            failure = self._redactor.redact(failure_data)
             if not isinstance(failure, dict):
                 raise AssertionError("failure must be an object")
             self._failure = failure
+
+    def set_replay(
+        self,
+        *,
+        attempts: int,
+        matched: int,
+        signature: str,
+        returncodes: Sequence[int | None],
+    ) -> None:
+        """Attach deterministic replay evidence to this trace."""
+
+        if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts <= 0:
+            raise ValueError("replay attempts must be a positive integer")
+        if (
+            not isinstance(matched, int)
+            or isinstance(matched, bool)
+            or not 0 <= matched <= attempts
+        ):
+            raise ValueError("replay matched count is invalid")
+        if not isinstance(signature, str) or not signature:
+            raise ValueError("replay signature must be a non-empty string")
+        if len(returncodes) != attempts:
+            raise ValueError("replay returncodes must match attempts")
+        if not all(
+            returncode is None
+            or (isinstance(returncode, int) and not isinstance(returncode, bool))
+            for returncode in returncodes
+        ):
+            raise TypeError("replay returncodes must contain integers or null")
+
+        with self._lock:
+            if self._replay is not None:
+                raise RuntimeError("trace replay is already set")
+            replay = self._redactor.redact(
+                {
+                    "attempts": attempts,
+                    "matched": matched,
+                    "returncodes": list(returncodes),
+                    "signature": signature,
+                }
+            )
+            if not isinstance(replay, dict):
+                raise AssertionError("replay must be an object")
+            self._replay = replay
 
     def artifact(self) -> dict[str, JsonValue]:
         """Return a detached snapshot of the current artifact."""
@@ -361,6 +419,8 @@ class TraceRecorder:
             }
             if self._failure is not None:
                 artifact["failure"] = self._failure
+            if self._replay is not None:
+                artifact["replay"] = self._replay
             snapshot = copy.deepcopy(artifact)
             scrubbed = self._redactor.scrub_known_sessions(snapshot)
             if not isinstance(scrubbed, dict):

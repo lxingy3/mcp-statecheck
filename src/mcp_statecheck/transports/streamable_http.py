@@ -6,6 +6,7 @@ import codecs
 import json
 from collections.abc import AsyncGenerator, Mapping
 from dataclasses import dataclass
+from math import isfinite
 from typing import Any
 
 import anyio
@@ -219,8 +220,10 @@ class StreamableHTTPTransport:
         transport: httpx.AsyncBaseTransport | None = None,
         max_response_bytes: int = 8 * 1024 * 1024,
     ) -> None:
-        if timeout <= 0 or max_response_bytes < 1:
-            raise ValueError("timeout and response limit must be positive")
+        if not isfinite(timeout) or timeout <= 0 or max_response_bytes < 1:
+            raise ValueError(
+                "timeout must be finite and positive; response limit must be positive"
+            )
         self.url = url
         self.timeout = timeout
         self.max_response_bytes = max_response_bytes

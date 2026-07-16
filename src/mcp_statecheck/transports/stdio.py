@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from collections.abc import Mapping, Sequence
+from math import isfinite
 from typing import Any
 
 import anyio
@@ -44,8 +45,13 @@ class StdioTransport:
         self.command = tuple(command)
         if not self.command or not all(isinstance(arg, str) for arg in self.command):
             raise ValueError("command must contain at least one string argument")
-        if timeout <= 0 or shutdown_timeout <= 0:
-            raise ValueError("timeouts must be positive")
+        if (
+            not isfinite(timeout)
+            or not isfinite(shutdown_timeout)
+            or timeout <= 0
+            or shutdown_timeout <= 0
+        ):
+            raise ValueError("timeouts must be finite and positive")
         if stderr_limit < 0 or max_message_bytes < 1:
             raise ValueError("stream limits are invalid")
 

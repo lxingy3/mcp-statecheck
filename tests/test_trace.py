@@ -86,12 +86,16 @@ def test_artifact_is_detached_and_failure_is_single_assignment() -> None:
         spec_reference="lifecycle.initialize",
         signature="protocol:early-request",
         minimized_reproducer=({"kind": "ping"},),
+        trigger_action_id="ping-1",
+        evidence={"subject": "client"},
     )
 
     artifact = recorder.artifact()
     assert artifact["schema_version"] == 1
     assert len(artifact["canonical_actions"]) == 1
     assert artifact["failure"]["minimized_reproducer"] == [{"kind": "ping"}]
+    assert artifact["failure"]["trigger_action_id"] == "ping-1"
+    assert artifact["failure"]["evidence"] == {"subject": "client"}
     with pytest.raises(RuntimeError, match="already set"):
         recorder.set_failure(
             kind="other",
@@ -99,6 +103,36 @@ def test_artifact_is_detached_and_failure_is_single_assignment() -> None:
             signature="other",
             minimized_reproducer=(),
         )
+
+
+def test_artifact_records_generation_and_replay_proof() -> None:
+    recorder = TraceRecorder(
+        protocol_version="2025-11-25",
+        adapter="wire",
+        sdk_version="none",
+        transport="stdio",
+        seed=17,
+        generation={"engine": "hypothesis", "version": "6.0"},
+    )
+
+    recorder.set_replay(
+        attempts=10,
+        matched=10,
+        signature="mcp-statecheck:v1:stable",
+        returncodes=(0,) * 10,
+    )
+
+    artifact = recorder.artifact()
+    assert artifact["generation"] == {
+        "engine": "hypothesis",
+        "version": "6.0",
+    }
+    assert artifact["replay"] == {
+        "attempts": 10,
+        "matched": 10,
+        "returncodes": [0] * 10,
+        "signature": "mcp-statecheck:v1:stable",
+    }
 
 
 def test_standalone_redaction_is_recursive_and_rejects_non_json_values() -> None:
