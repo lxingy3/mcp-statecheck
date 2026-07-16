@@ -152,7 +152,7 @@ def test_json_rpc_error_requires_code_and_message() -> None:
     anyio.run(scenario)
 
 
-def test_duplicate_mcp_request_ids_are_never_guessed() -> None:
+def test_response_barrier_initializes_before_duplicate_ids_are_never_guessed() -> None:
     async def scenario() -> None:
         result = await execute_stdio(
             (
@@ -162,6 +162,14 @@ def test_duplicate_mcp_request_ids_are_never_guessed() -> None:
                     mcp_request_id=1,
                     protocol_version="2025-11-25",
                 ),
+                Action(
+                    "initialize-response",
+                    ActionKind.RESPONSE,
+                    target_action_id="initialize",
+                    protocol_version="2025-11-25",
+                    capabilities={"tools": {}},
+                ),
+                Action("initialized", ActionKind.INITIALIZED),
                 Action(
                     "call-a",
                     ActionKind.REQUEST,
@@ -187,6 +195,7 @@ def test_duplicate_mcp_request_ids_are_never_guessed() -> None:
             timeout=5,
         )
 
+        assert result.events[0]["target_action_id"] == "initialize"
         duplicate_events = result.events[1:]
         assert [event["payload"] for event in duplicate_events] == [
             {"which": "second"},

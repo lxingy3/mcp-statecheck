@@ -1,4 +1,4 @@
-"""Shrink and replay the first complete M2 controlled failure."""
+"""Shrink and replay one complete M2 controlled failure."""
 
 from __future__ import annotations
 
@@ -11,36 +11,51 @@ from tempfile import TemporaryDirectory
 
 import anyio
 
-from mcp_statecheck.model import Action
+from mcp_statecheck.model import Action, ActionKind
 from mcp_statecheck.replay import ReplayResult, replay_stdio_failure
-from mcp_statecheck.stateful import ShrinkResult, shrink_request_before_initialize
+from mcp_statecheck.stateful import (
+    ShrinkResult,
+    shrink_duplicate_request_id,
+    shrink_request_before_initialize,
+)
 from mcp_statecheck.trace import TraceRecorder
 
 ROOT = Path(__file__).resolve().parents[1]
 PEER = ROOT / "tests" / "fixtures" / "peer.py"
-DEFAULT_OUTPUT = ROOT / "artifacts" / "m2" / "request-before-initialized.json"
-DEFAULT_SEED = 20_260_716
+DEFAULT_FIXTURE_ID = "request-before-initialized"
+M2_FIXTURE_IDS = (
+    DEFAULT_FIXTURE_ID,
+    "duplicate-concurrent-request-id",
+)
+DEFAULT_OUTPUTS = {
+    fixture_id: ROOT / "artifacts" / "m2" / f"{fixture_id}.json"
+    for fixture_id in M2_FIXTURE_IDS
+}
+DEFAULT_SEEDS = {
+    "request-before-initialized": 20_260_716,
+    "duplicate-concurrent-request-id": 20_260_717,
+}
 REPLAY_ATTEMPTS = 10
 
 
-def _peer_command() -> tuple[str, ...]:
+def _peer_command(fixture_id: str) -> tuple[str, ...]:
     return (
         sys.executable,
         str(PEER),
         "--stdio",
         "--mode",
-        "request-before-initialized",
+        fixture_id,
     )
 
 
-def _recorder(result: ShrinkResult) -> TraceRecorder:
+def _recorder(result: ShrinkResult, fixture_id: str) -> TraceRecorder:
     recorder = TraceRecorder(
         protocol_version="2025-11-25",
         adapter="wire",
         sdk_version="none",
         transport="stdio",
         seed=result.seed,
-        fixture_id="request-before-initialized",
+        fixture_id=fixture_id,
         cleanup={
             "shrink_peer_reaped": result.execution.returncode is not None,
             "shrink_peer_returncode": result.execution.returncode,
@@ -51,9 +66,12 @@ def _recorder(result: ShrinkResult) -> TraceRecorder:
             "version": result.hypothesis_version,
         },
     )
+    events = iter(result.execution.events)
     for action in result.actions:
         recorder.record_action(action.to_dict())
-    for event in result.execution.events:
+        if action.kind is ActionKind.RESPONSE:
+            recorder.record_event(next(events))
+    for event in events:
         recorder.record_event(event)
     recorder.set_failure(
         kind=result.failure.kind,
@@ -64,6 +82,28 @@ def _recorder(result: ShrinkResult) -> TraceRecorder:
         evidence=result.failure.evidence,
     )
     return recorder
+
+
+def _shrink(
+    fixture_id: str,
+    command: tuple[str, ...],
+    *,
+    seed: int,
+    timeout: float,
+) -> ShrinkResult:
+    if fixture_id == "request-before-initialized":
+        return shrink_request_before_initialize(
+            command,
+            seed=seed,
+            timeout=timeout,
+        )
+    if fixture_id == "duplicate-concurrent-request-id":
+        return shrink_duplicate_request_id(
+            command,
+            seed=seed,
+            timeout=timeout,
+        )
+    raise ValueError(f"unsupported M2 fixture: {fixture_id}")
 
 
 def _load_failure(path: Path) -> tuple[tuple[Action, ...], str]:
@@ -102,18 +142,25 @@ async def _replay_saved(
 def build_artifact(
     output: Path,
     *,
-    seed: int = DEFAULT_SEED,
+    fixture_id: str = DEFAULT_FIXTURE_ID,
+    seed: int | None = None,
     timeout: float = 5.0,
 ) -> Path:
     """Write, reload, replay, and finalize the deterministic M2 trace."""
 
-    command = _peer_command()
-    result = shrink_request_before_initialize(
+    if seed is None:
+        try:
+            seed = DEFAULT_SEEDS[fixture_id]
+        except KeyError as exc:
+            raise ValueError(f"unsupported M2 fixture: {fixture_id}") from exc
+    command = _peer_command(fixture_id)
+    result = _shrink(
+        fixture_id,
         command,
         seed=seed,
         timeout=timeout,
     )
-    recorder = _recorder(result)
+    recorder = _recorder(result, fixture_id)
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(
         dir=output.parent,
@@ -141,12 +188,22 @@ def build_artifact(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--fixture",
+        choices=M2_FIXTURE_IDS,
+        default=DEFAULT_FIXTURE_ID,
+    )
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--timeout", type=float, default=5.0)
     args = parser.parse_args()
 
-    output = build_artifact(args.output, seed=args.seed, timeout=args.timeout)
+    output = build_artifact(
+        args.output or DEFAULT_OUTPUTS[args.fixture],
+        fixture_id=args.fixture,
+        seed=args.seed,
+        timeout=args.timeout,
+    )
     resolved_output = output.resolve()
     try:
         display_output = resolved_output.relative_to(ROOT).as_posix()

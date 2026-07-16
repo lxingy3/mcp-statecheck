@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from math import isfinite
 
@@ -121,22 +121,108 @@ class _EarlyRequestMachine(RuleBasedStateMachine):
         return request_id
 
 
+class _DuplicateRequestIdMachine(RuleBasedStateMachine):
+    def __init__(self, command: tuple[str, ...], timeout: float) -> None:
+        super().__init__()
+        self._command = command
+        self._timeout = timeout
+        self._duplicate_added = False
+        self._next_pair_id = 7
+        self._next_ping_id = 100
+        self.actions: list[Action] = []
+
+    @initialize()
+    def initialize_connection(self) -> None:
+        self.actions.extend(
+            (
+                Action(
+                    "initialize",
+                    ActionKind.INITIALIZE,
+                    mcp_request_id=1,
+                    protocol_version="2025-11-25",
+                    capabilities={},
+                ),
+                Action(
+                    "initialize-response",
+                    ActionKind.RESPONSE,
+                    target_action_id="initialize",
+                    protocol_version="2025-11-25",
+                    capabilities={"tools": {}},
+                ),
+                Action("initialized", ActionKind.INITIALIZED),
+            )
+        )
+
+    @rule()
+    def duplicate_pair(self) -> None:
+        request_id = self._next_pair_id
+        self._next_pair_id += 1
+        suffix = "" if request_id == 7 else f"-{request_id}"
+        self._duplicate_added = True
+        self.actions.extend(
+            (
+                Action(
+                    f"call-a{suffix}",
+                    ActionKind.REQUEST,
+                    mcp_request_id=request_id,
+                    method="tools/call",
+                    payload={"label": "first"},
+                ),
+                Action(
+                    f"call-b{suffix}",
+                    ActionKind.REQUEST,
+                    mcp_request_id=request_id,
+                    method="tools/call",
+                    payload={"label": "second"},
+                ),
+            )
+        )
+
+    @rule()
+    def ping(self) -> None:
+        request_id = self._next_ping_id
+        self._next_ping_id += 1
+        self.actions.append(
+            Action(
+                f"ping-{request_id}",
+                ActionKind.REQUEST,
+                mcp_request_id=request_id,
+                method="ping",
+                payload={},
+            )
+        )
+
+    def teardown(self) -> None:
+        if sys.exception() is not None or not self._duplicate_added:
+            return
+        execution = anyio.run(
+            _execute_candidate,
+            tuple(self.actions),
+            self._command,
+            self._timeout,
+        )
+        failure = detect_failure(self.actions, execution.events)
+        if (
+            failure is not None
+            and failure.kind == "messages.request_id_reused_within_session"
+        ):
+            raise _Counterexample(self.actions, execution, failure)
+
+
 async def _execute_candidate(
     actions: tuple[Action, ...], command: tuple[str, ...], timeout: float
 ) -> ExecutionResult:
     return await execute_stdio(actions, command, timeout=timeout)
 
 
-def shrink_request_before_initialize(
+def _validated_shrink_command(
     command: Sequence[str],
     *,
     seed: int,
-    timeout: float = 5.0,
-    max_examples: int = 50,
-    stateful_step_count: int = 8,
-) -> ShrinkResult:
-    """Find and shrink a client request sent before initialize completes."""
-
+    timeout: float,
+    max_examples: int,
+    stateful_step_count: int,
+) -> tuple[str, ...]:
     normalized_command = tuple(command)
     if not normalized_command or not all(
         isinstance(part, str) and part for part in normalized_command
@@ -148,7 +234,17 @@ def shrink_request_before_initialize(
         raise ValueError("timeout must be finite and positive")
     if max_examples <= 0 or stateful_step_count <= 0:
         raise ValueError("Hypothesis limits must be positive")
+    return normalized_command
 
+
+def _run_machine(
+    factory: Callable[[], RuleBasedStateMachine],
+    *,
+    seed: int,
+    max_examples: int,
+    stateful_step_count: int,
+    no_failure_message: str,
+) -> ShrinkResult:
     recorded_settings: dict[str, JsonValue] = {
         "database": None,
         "deadline": None,
@@ -157,10 +253,6 @@ def shrink_request_before_initialize(
         "report_multiple_bugs": False,
         "stateful_step_count": stateful_step_count,
     }
-
-    def factory() -> _EarlyRequestMachine:
-        return _EarlyRequestMachine(normalized_command, timeout)
-
     seeded_factory = hypothesis_seed(seed)(factory)
     try:
         run_state_machine_as_test(
@@ -183,4 +275,64 @@ def shrink_request_before_initialize(
             hypothesis_version=hypothesis.__version__,
             settings=recorded_settings,
         )
-    raise NoFailureFound("no request-before-initialize failure was generated")
+    raise NoFailureFound(no_failure_message)
+
+
+def shrink_request_before_initialize(
+    command: Sequence[str],
+    *,
+    seed: int,
+    timeout: float = 5.0,
+    max_examples: int = 50,
+    stateful_step_count: int = 8,
+) -> ShrinkResult:
+    """Find and shrink a client request sent before initialize completes."""
+
+    normalized_command = _validated_shrink_command(
+        command,
+        seed=seed,
+        timeout=timeout,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+    )
+
+    def factory() -> _EarlyRequestMachine:
+        return _EarlyRequestMachine(normalized_command, timeout)
+
+    return _run_machine(
+        factory,
+        seed=seed,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+        no_failure_message="no request-before-initialize failure was generated",
+    )
+
+
+def shrink_duplicate_request_id(
+    command: Sequence[str],
+    *,
+    seed: int,
+    timeout: float = 5.0,
+    max_examples: int = 50,
+    stateful_step_count: int = 8,
+) -> ShrinkResult:
+    """Find and shrink a request ID reused within one session."""
+
+    normalized_command = _validated_shrink_command(
+        command,
+        seed=seed,
+        timeout=timeout,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+    )
+
+    def factory() -> _DuplicateRequestIdMachine:
+        return _DuplicateRequestIdMachine(normalized_command, timeout)
+
+    return _run_machine(
+        factory,
+        seed=seed,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+        no_failure_message="no duplicate request ID failure was generated",
+    )

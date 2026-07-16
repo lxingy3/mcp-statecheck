@@ -7,6 +7,7 @@ import pytest
 
 import scripts.run_m2_slice as m2_script
 from mcp_statecheck.execution import ExecutionResult
+from mcp_statecheck.fixtures import fixture_by_id
 from mcp_statecheck.invariants import detect_failure
 from mcp_statecheck.model import Action, ActionKind
 from mcp_statecheck.stateful import ShrinkResult
@@ -14,18 +15,21 @@ from mcp_statecheck.stateful import ShrinkResult
 CHECKED_IN_ARTIFACT = (
     Path(__file__).parents[1] / "artifacts" / "m2" / "request-before-initialized.json"
 )
+DUPLICATE_ARTIFACT = (
+    Path(__file__).parents[1]
+    / "artifacts"
+    / "m2"
+    / "duplicate-concurrent-request-id.json"
+)
 
 
 def test_request_before_initialized_slice_is_deterministic(tmp_path) -> None:
-    first = tmp_path / "first.json"
-    second = tmp_path / "second.json"
+    generated = tmp_path / "request-before-initialized.json"
 
-    m2_script.build_artifact(first, seed=20_260_716, timeout=5)
-    m2_script.build_artifact(second, seed=20_260_716, timeout=5)
+    m2_script.build_artifact(generated, seed=20_260_716, timeout=5)
 
-    assert first.read_bytes() == second.read_bytes()
-    assert first.read_bytes() == CHECKED_IN_ARTIFACT.read_bytes()
-    artifact = json.loads(first.read_text(encoding="utf-8"))
+    assert generated.read_bytes() == CHECKED_IN_ARTIFACT.read_bytes()
+    artifact = json.loads(generated.read_text(encoding="utf-8"))
     assert artifact["schema_version"] == 1
     assert artifact["fixture_id"] == "request-before-initialized"
     assert artifact["protocol_version"] == "2025-11-25"
@@ -52,6 +56,47 @@ def test_request_before_initialized_slice_is_deterministic(tmp_path) -> None:
     assert artifact["replay"]["attempts"] == 10
     assert artifact["replay"]["matched"] == 10
     assert artifact["replay"]["returncodes"] == [0] * 10
+
+
+def test_duplicate_request_id_slice_matches_its_golden_artifact(tmp_path) -> None:
+    generated = tmp_path / "duplicate-concurrent-request-id.json"
+
+    m2_script.build_artifact(
+        generated,
+        fixture_id="duplicate-concurrent-request-id",
+        seed=20_260_717,
+        timeout=5,
+    )
+
+    assert generated.read_bytes() == DUPLICATE_ARTIFACT.read_bytes()
+    artifact = json.loads(generated.read_text(encoding="utf-8"))
+    outbound_action_ids = [
+        action["action_id"]
+        for action in artifact["failure"]["minimized_reproducer"]
+        if action["kind"] != "response"
+    ]
+    assert outbound_action_ids == list(
+        fixture_by_id("duplicate-concurrent-request-id").minimum_actions
+    )
+    assert artifact["failure"]["kind"] == ("messages.request_id_reused_within_session")
+    assert artifact["failure"]["evidence"]["overlap"] == "pending"
+    assert [event["target_action_id"] for event in artifact["normalized_events"]] == [
+        "initialize",
+        None,
+        None,
+    ]
+    action_sequences = {
+        action["action_id"]: action["sequence"]
+        for action in artifact["canonical_actions"]
+    }
+    initialize_event_sequence = artifact["normalized_events"][0]["sequence"]
+    assert (
+        action_sequences["initialize-response"]
+        < initialize_event_sequence
+        < action_sequences["initialized"]
+    )
+    assert artifact["replay"]["attempts"] == 10
+    assert artifact["replay"]["matched"] == 10
 
 
 def test_replay_failure_preserves_existing_artifact(tmp_path, monkeypatch) -> None:

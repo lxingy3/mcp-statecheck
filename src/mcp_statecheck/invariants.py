@@ -21,6 +21,10 @@ INITIALIZATION_SPEC = (
     "basic/lifecycle#initialization"
 )
 EARLY_REQUEST_KIND = "lifecycle.client_request_before_initialize_response"
+DUPLICATE_REQUEST_ID_SPEC = (
+    "https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests"
+)
+DUPLICATE_REQUEST_ID_KIND = "messages.request_id_reused_within_session"
 CONNECTION_BOUNDARIES = {
     ActionKind.CONNECT,
     ActionKind.RECONNECT,
@@ -60,6 +64,8 @@ def detect_failure(
 
     state = ModelState()
     initialize_action_id: str | None = None
+    session_active = False
+    used_request_ids: dict[str, tuple[str, str | None]] = {}
     for action in actions:
         if not isinstance(action, Action):
             raise TypeError("actions must contain Action values")
@@ -83,11 +89,71 @@ def detect_failure(
                     evidence=evidence,
                     signature=_signature(EARLY_REQUEST_KIND, evidence),
                 )
+        if action.kind is ActionKind.INITIALIZE:
+            session_active = True
+        if (
+            session_active
+            and action.kind
+            in (
+                ActionKind.INITIALIZE,
+                ActionKind.REQUEST,
+            )
+            and (
+                isinstance(action.mcp_request_id, str)
+                or type(action.mcp_request_id) is int
+            )
+        ):
+            request_id_key = json.dumps(
+                action.mcp_request_id,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            method = (
+                "initialize" if action.kind is ActionKind.INITIALIZE else action.method
+            )
+            previous = used_request_ids.get(request_id_key)
+            if previous is not None:
+                previous_action_id, previous_method = previous
+                previous_request = state.request(previous_action_id)
+                overlap = (
+                    previous_request.status.value
+                    if previous_request is not None
+                    else "unknown"
+                )
+                evidence = {
+                    "direction": "client_to_server",
+                    "mcp_request_id": action.mcp_request_id,
+                    "method": method,
+                    "overlap": overlap,
+                    "previous_action_id": previous_action_id,
+                    "previous_method": previous_method,
+                    "session_scope": "same_session",
+                    "subject": "client",
+                }
+                signature_evidence = {
+                    "direction": "client_to_server",
+                    "overlap": overlap,
+                    "session_scope": "same_session",
+                    "subject": "client",
+                }
+                return Failure(
+                    kind=DUPLICATE_REQUEST_ID_KIND,
+                    spec_reference=DUPLICATE_REQUEST_ID_SPEC,
+                    trigger_action_id=action.action_id,
+                    evidence=evidence,
+                    signature=_signature(
+                        DUPLICATE_REQUEST_ID_KIND,
+                        signature_evidence,
+                    ),
+                )
+            used_request_ids[request_id_key] = (action.action_id, method)
         state = reduce(state, action)
         if action.kind is ActionKind.INITIALIZE:
             initialize_action_id = action.action_id
         elif action.kind in CONNECTION_BOUNDARIES:
             initialize_action_id = None
+            session_active = False
+            used_request_ids.clear()
     return None
 
 

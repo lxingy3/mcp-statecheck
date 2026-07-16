@@ -27,7 +27,7 @@ async def execute_stdio(
 ) -> ExecutionResult:
     """Execute initialize and request actions against one stdio peer."""
 
-    prepared: list[tuple[Action, dict[str, JsonValue]]] = []
+    prepared: list[tuple[Action, dict[str, JsonValue] | None]] = []
     action_ids: set[str] = set()
     for action in actions:
         if not isinstance(action, Action):
@@ -37,20 +37,39 @@ async def execute_stdio(
                 f"duplicate internal action_id: {action.action_id}"
             )
         action_ids.add(action.action_id)
-        prepared.append((action, _wire_message(action)))
+        message = None if action.kind is ActionKind.RESPONSE else _wire_message(action)
+        prepared.append((action, message))
 
     pending: dict[str, list[str]] = {}
-    response_count = 0
+    remaining_response_count = 0
     events: list[dict[str, JsonValue]] = []
     transport = StdioTransport(command, timeout=timeout)
     async with transport:
         for action, message in prepared:
+            if action.kind is ActionKind.RESPONSE:
+                if remaining_response_count == 0:
+                    raise ExecutionProtocolError(
+                        "response barrier has no pending request"
+                    )
+                event = _normalize_response(await transport.receive(), pending)
+                if (
+                    action.target_action_id is not None
+                    and event["target_action_id"] != action.target_action_id
+                ):
+                    raise ExecutionProtocolError(
+                        "response barrier received a different request"
+                    )
+                events.append(event)
+                remaining_response_count -= 1
+                continue
+            if message is None:
+                raise AssertionError("outbound action requires a wire message")
             await transport.send(message)
             if "id" in message:
                 pending.setdefault(_id_key(message["id"]), []).append(action.action_id)
-                response_count += 1
+                remaining_response_count += 1
 
-        for _ in range(response_count):
+        for _ in range(remaining_response_count):
             events.append(_normalize_response(await transport.receive(), pending))
 
     return ExecutionResult(tuple(events), transport.returncode, transport.stderr)
@@ -86,6 +105,11 @@ def _wire_message(action: Action) -> dict[str, JsonValue]:
         if action.payload is not None:
             message["params"] = canonical_json(action.payload)
         return message
+    if action.kind is ActionKind.INITIALIZED:
+        return {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized",
+        }
     raise ExecutionProtocolError(f"unsupported action kind: {action.kind.value}")
 
 
