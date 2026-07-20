@@ -32,4 +32,5 @@ jobs:
         run: |
           uv run python scripts/run_m2_slice.py --output "${{ runner.temp }}/m2/request-before-initialized.json"
           uv run python scripts/run_m2_slice.py --fixture duplicate-concurrent-request-id --output "${{ runner.temp }}/m2/duplicate-concurrent-request-id.json"
+          uv run python scripts/run_m2_slice.py --fixture late-response-after-cancellation --output "${{ runner.temp }}/m2/late-response-after-cancellation.json"
       - run: uv build
