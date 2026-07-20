@@ -14,7 +14,7 @@ from mcp_statecheck.transports import (
     StdioTransport,
     StreamableHTTPTransport,
 )
-from tests.fixtures.peer import ControlledHTTPPeer
+from tests.fixtures.peer import ControlledHTTPPeer, PeerState
 
 FIXTURE_PEER = Path(__file__).parent / "fixtures" / "peer.py"
 PROTOCOL_VERSION = "2025-11-25"
@@ -214,7 +214,7 @@ def test_peer_accepts_request_before_initialize_result() -> None:
     anyio.run(run)
 
 
-def test_late_cancelled_response_does_not_consume_next_call() -> None:
+def test_late_cancelled_result_is_misattributed_to_next_call() -> None:
     async def run() -> None:
         transport = StdioTransport(
             _stdio_command("late-response-after-cancellation"), timeout=1
@@ -230,7 +230,10 @@ def test_late_cancelled_response_does_not_consume_next_call() -> None:
                     "jsonrpc": "2.0",
                     "id": 21,
                     "method": "tools/call",
-                    "params": {"name": "fixture", "label": "cancelled"},
+                    "params": {
+                        "arguments": {"fixtureCanary": "call-a"},
+                        "name": "fixture",
+                    },
                 }
             )
             await transport.send(
@@ -240,19 +243,28 @@ def test_late_cancelled_response_does_not_consume_next_call() -> None:
                     "params": {"requestId": 21, "reason": "fixture"},
                 }
             )
-            late = await transport.receive()
             await transport.send(
                 {
                     "jsonrpc": "2.0",
                     "id": 22,
                     "method": "tools/call",
-                    "params": {"name": "fixture", "label": "next"},
+                    "params": {
+                        "arguments": {"fixtureCanary": "call-b"},
+                        "name": "fixture",
+                    },
                 }
             )
-            current = await transport.receive()
+            first = await transport.receive()
+            second = await transport.receive()
 
-        assert (late["id"], late["result"]["which"]) == (21, "cancelled")
-        assert (current["id"], current["result"]["which"]) == (22, "next")
+        assert (first["id"], first["result"]["structuredContent"]) == (
+            22,
+            {"fixtureCanary": "call-a"},
+        )
+        assert (second["id"], second["result"]["structuredContent"]) == (
+            21,
+            {"fixtureCanary": "call-b"},
+        )
         artifact = _trace(
             "late-response-after-cancellation",
             "stdio",
@@ -264,11 +276,56 @@ def test_late_cancelled_response_does_not_consume_next_call() -> None:
                 {"action_id": "call-b", "kind": "request", "mcp_request_id": 22},
             ],
             [
-                {"kind": "late_response", "target_action_id": "call-a"},
-                {"kind": "response", "target_action_id": "call-b"},
+                {
+                    "kind": "response",
+                    "source_action_id": "call-a",
+                    "target_action_id": "call-b",
+                },
+                {
+                    "kind": "response",
+                    "source_action_id": "call-b",
+                    "target_action_id": "call-a",
+                },
             ],
             {"child_reaped": transport.returncode is not None},
         )
-        assert artifact["normalized_events"][0]["kind"] == "late_response"
+        assert artifact["normalized_events"][0]["source_action_id"] == "call-a"
+        assert artifact["normalized_events"][0]["target_action_id"] == "call-b"
 
     anyio.run(run)
+
+
+def test_late_response_peer_ignores_cancel_for_a_different_request() -> None:
+    peer = PeerState("late-response-after-cancellation")
+    assert (
+        peer.handle_stdio(
+            {
+                "jsonrpc": "2.0",
+                "id": 21,
+                "method": "tools/call",
+                "params": {"arguments": {"fixtureCanary": "call-a"}, "name": "fixture"},
+            }
+        )
+        == []
+    )
+    assert (
+        peer.handle_stdio(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {"requestId": 999},
+            }
+        )
+        == []
+    )
+
+    responses = peer.handle_stdio(
+        {
+            "jsonrpc": "2.0",
+            "id": 22,
+            "method": "tools/call",
+            "params": {"arguments": {"fixtureCanary": "call-b"}, "name": "fixture"},
+        }
+    )
+
+    assert responses == []

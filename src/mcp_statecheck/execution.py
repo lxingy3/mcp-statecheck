@@ -110,6 +110,12 @@ def _wire_message(action: Action) -> dict[str, JsonValue]:
             "jsonrpc": "2.0",
             "method": "notifications/initialized",
         }
+    if action.kind is ActionKind.CANCEL:
+        return {
+            "jsonrpc": "2.0",
+            "method": "notifications/cancelled",
+            "params": {"requestId": canonical_json(action.mcp_request_id)},
+        }
     raise ExecutionProtocolError(f"unsupported action kind: {action.kind.value}")
 
 

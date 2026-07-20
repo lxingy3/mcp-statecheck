@@ -207,3 +207,81 @@ def test_response_barrier_initializes_before_duplicate_ids_are_never_guessed() -
         ]
 
     anyio.run(scenario)
+
+
+def test_late_cancelled_result_can_be_correlated_to_the_wrong_request() -> None:
+    async def scenario() -> None:
+        result = await execute_stdio(
+            (
+                Action(
+                    "initialize",
+                    ActionKind.INITIALIZE,
+                    mcp_request_id=1,
+                    protocol_version="2025-11-25",
+                ),
+                Action(
+                    "initialize-response",
+                    ActionKind.RESPONSE,
+                    target_action_id="initialize",
+                ),
+                Action("initialized", ActionKind.INITIALIZED),
+                Action(
+                    "call-a",
+                    ActionKind.REQUEST,
+                    mcp_request_id=21,
+                    method="tools/call",
+                    payload={
+                        "arguments": {"fixtureCanary": "call-a"},
+                        "name": "fixture",
+                    },
+                ),
+                Action(
+                    "cancel-a",
+                    ActionKind.CANCEL,
+                    mcp_request_id=21,
+                    target_action_id="call-a",
+                ),
+                Action(
+                    "call-b",
+                    ActionKind.REQUEST,
+                    mcp_request_id=22,
+                    method="tools/call",
+                    payload={
+                        "arguments": {"fixtureCanary": "call-b"},
+                        "name": "fixture",
+                    },
+                ),
+                Action(
+                    "misattributed-late-response",
+                    ActionKind.RESPONSE,
+                    target_action_id="call-b",
+                ),
+                Action(
+                    "misattributed-current-response",
+                    ActionKind.RESPONSE,
+                    target_action_id="call-a",
+                ),
+            ),
+            (
+                sys.executable,
+                str(PEER),
+                "--stdio",
+                "--mode",
+                "late-response-after-cancellation",
+            ),
+            timeout=5,
+        )
+
+        assert result.returncode == 0
+        assert result.stderr == ""
+        assert [event["target_action_id"] for event in result.events] == [
+            "initialize",
+            "call-b",
+            "call-a",
+        ]
+        assert [
+            event["payload"].get("structuredContent", {}).get("fixtureCanary")
+            for event in result.events[1:]
+        ] == ["call-a", "call-b"]
+
+    anyio.run(scenario)

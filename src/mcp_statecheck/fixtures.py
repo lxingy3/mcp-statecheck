@@ -39,7 +39,7 @@ FIXTURES = (
     FixtureDefinition(
         "late-response-after-cancellation",
         "stdio",
-        "A cancelled call replies late without consuming a later call.",
+        "A cancelled result is cross-correlated with a later call.",
         ("initialize", "initialized", "call-a", "cancel-a", "call-b"),
     ),
 )

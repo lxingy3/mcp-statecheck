@@ -19,7 +19,12 @@ from hypothesis.stateful import (
 )
 
 from .execution import ExecutionResult, execute_stdio
-from .invariants import Failure, detect_failure
+from .invariants import (
+    LATE_RESPONSE_FIXTURE_ID,
+    WRONG_RESPONSE_CORRELATION_KIND,
+    Failure,
+    detect_failure,
+)
 from .model import Action, ActionKind, JsonValue
 
 
@@ -50,6 +55,26 @@ class _Counterexample(AssertionError):
         self.execution = execution
         self.failure = failure
         super().__init__(failure.signature)
+
+
+def _initialized_actions() -> tuple[Action, ...]:
+    return (
+        Action(
+            "initialize",
+            ActionKind.INITIALIZE,
+            mcp_request_id=1,
+            protocol_version="2025-11-25",
+            capabilities={},
+        ),
+        Action(
+            "initialize-response",
+            ActionKind.RESPONSE,
+            target_action_id="initialize",
+            protocol_version="2025-11-25",
+            capabilities={"tools": {}},
+        ),
+        Action("initialized", ActionKind.INITIALIZED),
+    )
 
 
 class _EarlyRequestMachine(RuleBasedStateMachine):
@@ -133,25 +158,7 @@ class _DuplicateRequestIdMachine(RuleBasedStateMachine):
 
     @initialize()
     def initialize_connection(self) -> None:
-        self.actions.extend(
-            (
-                Action(
-                    "initialize",
-                    ActionKind.INITIALIZE,
-                    mcp_request_id=1,
-                    protocol_version="2025-11-25",
-                    capabilities={},
-                ),
-                Action(
-                    "initialize-response",
-                    ActionKind.RESPONSE,
-                    target_action_id="initialize",
-                    protocol_version="2025-11-25",
-                    capabilities={"tools": {}},
-                ),
-                Action("initialized", ActionKind.INITIALIZED),
-            )
-        )
+        self.actions.extend(_initialized_actions())
 
     @rule()
     def duplicate_pair(self) -> None:
@@ -206,6 +213,86 @@ class _DuplicateRequestIdMachine(RuleBasedStateMachine):
             failure is not None
             and failure.kind == "messages.request_id_reused_within_session"
         ):
+            raise _Counterexample(self.actions, execution, failure)
+
+
+class _LateResponseCorrelationMachine(RuleBasedStateMachine):
+    def __init__(self, command: tuple[str, ...], timeout: float) -> None:
+        super().__init__()
+        self._command = command
+        self._timeout = timeout
+        self._pair_count = 0
+        self.actions: list[Action] = []
+
+    @initialize()
+    def initialize_connection(self) -> None:
+        self.actions.extend(_initialized_actions())
+
+    @rule()
+    def corrupted_pair(self) -> None:
+        pair_number = self._pair_count + 1
+        suffix = "" if pair_number == 1 else f"-{pair_number}"
+        first_id = 21 + self._pair_count * 2
+        second_id = first_id + 1
+        first_action_id = f"call-a{suffix}"
+        second_action_id = f"call-b{suffix}"
+        self._pair_count = pair_number
+        self.actions.extend(
+            (
+                Action(
+                    first_action_id,
+                    ActionKind.REQUEST,
+                    mcp_request_id=first_id,
+                    method="tools/call",
+                    payload={
+                        "arguments": {"fixtureCanary": first_action_id},
+                        "name": "fixture",
+                    },
+                ),
+                Action(
+                    f"cancel-a{suffix}",
+                    ActionKind.CANCEL,
+                    mcp_request_id=first_id,
+                    target_action_id=first_action_id,
+                ),
+                Action(
+                    second_action_id,
+                    ActionKind.REQUEST,
+                    mcp_request_id=second_id,
+                    method="tools/call",
+                    payload={
+                        "arguments": {"fixtureCanary": second_action_id},
+                        "name": "fixture",
+                    },
+                ),
+                Action(
+                    f"misattributed-late-response{suffix}",
+                    ActionKind.RESPONSE,
+                    target_action_id=second_action_id,
+                ),
+                Action(
+                    f"misattributed-current-response{suffix}",
+                    ActionKind.RESPONSE,
+                    target_action_id=first_action_id,
+                ),
+            )
+        )
+
+    def teardown(self) -> None:
+        if sys.exception() is not None or self._pair_count == 0:
+            return
+        execution = anyio.run(
+            _execute_candidate,
+            tuple(self.actions),
+            self._command,
+            self._timeout,
+        )
+        failure = detect_failure(
+            self.actions,
+            execution.events,
+            fixture_id=LATE_RESPONSE_FIXTURE_ID,
+        )
+        if failure is not None and failure.kind == WRONG_RESPONSE_CORRELATION_KIND:
             raise _Counterexample(self.actions, execution, failure)
 
 
@@ -335,4 +422,34 @@ def shrink_duplicate_request_id(
         max_examples=max_examples,
         stateful_step_count=stateful_step_count,
         no_failure_message="no duplicate request ID failure was generated",
+    )
+
+
+def shrink_late_response_correlation(
+    command: Sequence[str],
+    *,
+    seed: int,
+    timeout: float = 5.0,
+    max_examples: int = 50,
+    stateful_step_count: int = 8,
+) -> ShrinkResult:
+    """Find and shrink a late response correlated to a later request."""
+
+    normalized_command = _validated_shrink_command(
+        command,
+        seed=seed,
+        timeout=timeout,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+    )
+
+    def factory() -> _LateResponseCorrelationMachine:
+        return _LateResponseCorrelationMachine(normalized_command, timeout)
+
+    return _run_machine(
+        factory,
+        seed=seed,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+        no_failure_message="no late-response correlation failure was generated",
     )

@@ -6,6 +6,7 @@ from pathlib import Path
 from mcp_statecheck.model import ActionKind
 from mcp_statecheck.stateful import (
     shrink_duplicate_request_id,
+    shrink_late_response_correlation,
     shrink_request_before_initialize,
 )
 
@@ -68,4 +69,38 @@ def test_duplicate_request_id_shrinks_to_two_overlapping_calls() -> None:
         result.actions[0].action_id,
         None,
         None,
+    )
+
+
+def test_late_response_correlation_shrinks_to_one_cancelled_pair() -> None:
+    result = shrink_late_response_correlation(
+        (
+            sys.executable,
+            str(PEER),
+            "--stdio",
+            "--mode",
+            "late-response-after-cancellation",
+        ),
+        seed=20_260_720,
+        timeout=5,
+    )
+
+    assert tuple((action.kind, action.action_id) for action in result.actions) == (
+        (ActionKind.INITIALIZE, "initialize"),
+        (ActionKind.RESPONSE, "initialize-response"),
+        (ActionKind.INITIALIZED, "initialized"),
+        (ActionKind.REQUEST, "call-a"),
+        (ActionKind.CANCEL, "cancel-a"),
+        (ActionKind.REQUEST, "call-b"),
+        (ActionKind.RESPONSE, "misattributed-late-response"),
+        (ActionKind.RESPONSE, "misattributed-current-response"),
+    )
+    assert result.failure.kind == ("differential.response_correlated_to_wrong_request")
+    assert result.failure.trigger_action_id == "call-b"
+    assert result.execution.returncode == 0
+    assert result.execution.stderr == ""
+    assert tuple(event["target_action_id"] for event in result.execution.events) == (
+        "initialize",
+        "call-b",
+        "call-a",
     )

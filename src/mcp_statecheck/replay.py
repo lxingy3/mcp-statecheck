@@ -37,6 +37,7 @@ async def replay_stdio_failure(
     command: Sequence[str],
     *,
     expected_signature: str,
+    fixture_id: str | None = None,
     attempts: int = 10,
     timeout: float = 5.0,
 ) -> ReplayResult:
@@ -61,7 +62,11 @@ async def replay_stdio_failure(
             raise ReplayInfrastructureError(
                 f"replay {number} peer exited with status {execution.returncode}"
             )
-        failure = detect_failure(canonical_actions, execution.events)
+        failure = detect_failure(
+            canonical_actions,
+            execution.events,
+            fixture_id=fixture_id,
+        )
         if failure is None:
             raise ReplayMismatch(f"replay {number} did not reproduce a failure")
         if failure.signature != expected_signature:

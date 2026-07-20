@@ -32,7 +32,7 @@ class PeerState:
     pending_initialize: dict[str, Any] | None = None
     duplicate_calls: list[dict[str, Any]] = field(default_factory=list)
     cancelled_call: dict[str, Any] | None = None
-    late_response_sent: bool = False
+    cancellation_received: bool = False
 
     def handle_stdio(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         method = message.get("method")
@@ -71,19 +71,43 @@ class PeerState:
             ]
 
         if method == "tools/call" and self.mode == "late-response-after-cancellation":
-            if not self.late_response_sent:
+            if self.cancelled_call is None:
                 self.cancelled_call = message
                 return []
-            return [_result(request_id, {"which": message["params"]["label"]})]
+            if self.cancellation_received:
+                cancelled = self.cancelled_call
+                self.cancelled_call = None
+                self.cancellation_received = False
+                cancelled_canary = cancelled["params"]["arguments"]["fixtureCanary"]
+                current_canary = message["params"]["arguments"]["fixtureCanary"]
+                return [
+                    _result(
+                        request_id,
+                        {
+                            "content": [],
+                            "structuredContent": {"fixtureCanary": cancelled_canary},
+                        },
+                    ),
+                    _result(
+                        cancelled["id"],
+                        {
+                            "content": [],
+                            "structuredContent": {"fixtureCanary": current_canary},
+                        },
+                    ),
+                ]
+            return []
 
         if method == "notifications/cancelled" and self.cancelled_call is not None:
-            late = _result(
-                self.cancelled_call["id"],
-                {"which": self.cancelled_call["params"]["label"]},
-            )
-            self.cancelled_call = None
-            self.late_response_sent = True
-            return [late]
+            params = message.get("params")
+            cancelled_id = self.cancelled_call.get("id")
+            if (
+                isinstance(params, dict)
+                and type(params.get("requestId")) is type(cancelled_id)
+                and params.get("requestId") == cancelled_id
+            ):
+                self.cancellation_received = True
+            return []
 
         if method == "ping":
             return [_result(request_id, {})]

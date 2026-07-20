@@ -25,6 +25,11 @@ DUPLICATE_REQUEST_ID_SPEC = (
     "https://modelcontextprotocol.io/specification/2025-11-25/basic/index#requests"
 )
 DUPLICATE_REQUEST_ID_KIND = "messages.request_id_reused_within_session"
+RESPONSE_CORRELATION_SPEC = (
+    "https://modelcontextprotocol.io/specification/2025-11-25/basic/index#responses"
+)
+LATE_RESPONSE_FIXTURE_ID = "late-response-after-cancellation"
+WRONG_RESPONSE_CORRELATION_KIND = "differential.response_correlated_to_wrong_request"
 CONNECTION_BOUNDARIES = {
     ActionKind.CONNECT,
     ActionKind.RECONNECT,
@@ -55,9 +60,12 @@ class Failure:
 
 
 def detect_failure(
-    actions: Sequence[Action], events: Sequence[Mapping[str, object]]
+    actions: Sequence[Action],
+    events: Sequence[Mapping[str, object]],
+    *,
+    fixture_id: str | None = None,
 ) -> Failure | None:
-    """Return the first non-ping request sent before initialize replied."""
+    """Return the first stable failure in canonical actions and observations."""
 
     if not all(isinstance(event, Mapping) for event in events):
         raise TypeError("events must contain objects")
@@ -154,7 +162,128 @@ def detect_failure(
             initialize_action_id = None
             session_active = False
             used_request_ids.clear()
+    if fixture_id == LATE_RESPONSE_FIXTURE_ID:
+        return _detect_fixture_canary_failure(actions, events)
     return None
+
+
+def _detect_fixture_canary_failure(
+    actions: Sequence[Action], events: Sequence[Mapping[str, object]]
+) -> Failure | None:
+    positions = {action.action_id: index for index, action in enumerate(actions)}
+    actions_by_id = {action.action_id: action for action in actions}
+    cancellations = {
+        action.target_action_id: (action, positions[action.action_id])
+        for action in actions
+        if action.kind is ActionKind.CANCEL and action.target_action_id in actions_by_id
+    }
+    canary_actions: dict[str, Action | None] = {}
+    for action in actions:
+        canary = _request_canary(action)
+        if canary is not None:
+            canary_actions[canary] = None if canary in canary_actions else action
+
+    barrier_positions = iter(
+        index
+        for index, action in enumerate(actions)
+        if action.kind is ActionKind.RESPONSE
+    )
+    mismatches: dict[tuple[str, str], tuple[Mapping[str, object], int]] = {}
+    for event in events:
+        event_position = next(barrier_positions, len(actions))
+        target_action_id = event.get("target_action_id")
+        source = canary_actions.get(_response_canary(event))
+        target = (
+            actions_by_id.get(target_action_id)
+            if isinstance(target_action_id, str)
+            else None
+        )
+        if (
+            source is not None
+            and target is not None
+            and source.action_id != target.action_id
+            and event.get("mcp_request_id") == target.mcp_request_id
+        ):
+            mismatches[(source.action_id, target.action_id)] = (
+                event,
+                event_position,
+            )
+
+    for (source_action_id, target_action_id), (
+        event,
+        event_position,
+    ) in mismatches.items():
+        cancellation = cancellations.get(source_action_id)
+        reciprocal = mismatches.get((target_action_id, source_action_id))
+        source = actions_by_id[source_action_id]
+        target = actions_by_id[target_action_id]
+        if (
+            cancellation is None
+            or reciprocal is None
+            or reciprocal[0].get("mcp_request_id") != source.mcp_request_id
+        ):
+            continue
+        cancel_action, cancel_position = cancellation
+        if cancel_action.mcp_request_id != source.mcp_request_id:
+            continue
+        if not (
+            positions[source_action_id]
+            < cancel_position
+            < positions[target_action_id]
+            < min(event_position, reciprocal[1])
+        ):
+            continue
+        signature_evidence = {
+            "cancellation_context": "after_cancellation",
+            "correlation": "wrong_request",
+            "direction": "server_to_client",
+            "oracle": "fixture_canary",
+            "subject": "server",
+        }
+        evidence: dict[str, JsonValue] = {
+            **signature_evidence,
+            "expected_canary": _request_canary(target),
+            "observed_canary": _response_canary(event),
+            "response_mcp_request_id": canonical_json(
+                event.get("mcp_request_id"),
+                where="event.mcp_request_id",
+            ),
+            "source_action_id": source_action_id,
+            "source_request_status": "cancelled",
+            "target_action_id": target_action_id,
+        }
+        return Failure(
+            kind=WRONG_RESPONSE_CORRELATION_KIND,
+            spec_reference=RESPONSE_CORRELATION_SPEC,
+            trigger_action_id=target_action_id,
+            evidence=evidence,
+            signature=_signature(
+                WRONG_RESPONSE_CORRELATION_KIND,
+                signature_evidence,
+            ),
+        )
+    return None
+
+
+def _request_canary(action: Action) -> str | None:
+    if action.kind is not ActionKind.REQUEST or not isinstance(action.payload, Mapping):
+        return None
+    arguments = action.payload.get("arguments")
+    if not isinstance(arguments, Mapping):
+        return None
+    canary = arguments.get("fixtureCanary")
+    return canary if isinstance(canary, str) else None
+
+
+def _response_canary(event: Mapping[str, object]) -> str | None:
+    payload = event.get("payload")
+    if not isinstance(payload, Mapping):
+        return None
+    structured = payload.get("structuredContent")
+    if not isinstance(structured, Mapping):
+        return None
+    canary = structured.get("fixtureCanary")
+    return canary if isinstance(canary, str) else None
 
 
 def _signature(kind: str, evidence: Mapping[str, object]) -> str:

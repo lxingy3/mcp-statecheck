@@ -1,6 +1,8 @@
+from dataclasses import replace
+
 import pytest
 
-from mcp_statecheck.invariants import detect_failure
+from mcp_statecheck.invariants import LATE_RESPONSE_FIXTURE_ID, detect_failure
 from mcp_statecheck.model import Action, ActionKind
 
 
@@ -23,6 +25,77 @@ def _initialized_session(
             capabilities={},
         ),
         Action(f"{prefix}-initialized", ActionKind.INITIALIZED),
+    )
+
+
+def _late_cancellation_actions() -> tuple[Action, ...]:
+    return (
+        *_initialized_session(),
+        Action(
+            "call-a",
+            ActionKind.REQUEST,
+            mcp_request_id=21,
+            method="tools/call",
+            payload={
+                "arguments": {"fixtureCanary": "call-a"},
+                "name": "fixture",
+            },
+        ),
+        Action(
+            "cancel-a",
+            ActionKind.CANCEL,
+            mcp_request_id=21,
+            target_action_id="call-a",
+        ),
+        Action(
+            "call-b",
+            ActionKind.REQUEST,
+            mcp_request_id=22,
+            method="tools/call",
+            payload={
+                "arguments": {"fixtureCanary": "call-b"},
+                "name": "fixture",
+            },
+        ),
+        Action(
+            "misattributed-late-response",
+            ActionKind.RESPONSE,
+            target_action_id="call-b",
+        ),
+        Action(
+            "misattributed-current-response",
+            ActionKind.RESPONSE,
+            target_action_id="call-a",
+        ),
+    )
+
+
+def _late_correlation_events() -> tuple[dict[str, object], ...]:
+    return (
+        {
+            "kind": "response",
+            "mcp_request_id": 1,
+            "payload": {},
+            "target_action_id": "session-initialize",
+        },
+        {
+            "kind": "response",
+            "mcp_request_id": 22,
+            "payload": {
+                "content": [],
+                "structuredContent": {"fixtureCanary": "call-a"},
+            },
+            "target_action_id": "call-b",
+        },
+        {
+            "kind": "response",
+            "mcp_request_id": 21,
+            "payload": {
+                "content": [],
+                "structuredContent": {"fixtureCanary": "call-b"},
+            },
+            "target_action_id": "call-a",
+        },
     )
 
 
@@ -390,3 +463,171 @@ def test_stream_resume_does_not_clear_request_id_history() -> None:
 
     assert failure is not None
     assert failure.kind == "messages.request_id_reused_within_session"
+
+
+def test_cancelled_result_matched_to_later_request_is_a_stable_failure() -> None:
+    failure = detect_failure(
+        _late_cancellation_actions(),
+        _late_correlation_events(),
+        fixture_id=LATE_RESPONSE_FIXTURE_ID,
+    )
+
+    assert failure is not None
+    assert failure.kind == "differential.response_correlated_to_wrong_request"
+    assert failure.trigger_action_id == "call-b"
+    assert failure.evidence == {
+        "cancellation_context": "after_cancellation",
+        "correlation": "wrong_request",
+        "direction": "server_to_client",
+        "expected_canary": "call-b",
+        "observed_canary": "call-a",
+        "oracle": "fixture_canary",
+        "response_mcp_request_id": 22,
+        "source_action_id": "call-a",
+        "source_request_status": "cancelled",
+        "subject": "server",
+        "target_action_id": "call-b",
+    }
+    assert failure.signature == (
+        "mcp-statecheck:v1:"
+        "a1107b3b1e4ddfa1a9d16bd82f94810c77e6b43c7eee8844be089a4c7550ff1c"
+    )
+
+
+def test_fixture_canary_oracle_requires_explicit_fixture_scope() -> None:
+    failure = detect_failure(
+        _late_cancellation_actions(),
+        _late_correlation_events(),
+    )
+
+    assert failure is None
+
+
+def test_canary_oracle_requires_cancel_id_to_match_source_request() -> None:
+    actions = list(_late_cancellation_actions())
+    actions[4] = replace(actions[4], mcp_request_id=999)
+
+    failure = detect_failure(
+        actions,
+        _late_correlation_events(),
+        fixture_id=LATE_RESPONSE_FIXTURE_ID,
+    )
+
+    assert failure is None
+
+
+def test_reciprocal_canary_swap_is_independent_of_response_order() -> None:
+    base_actions = _late_cancellation_actions()
+    actions = (*base_actions[:-2], base_actions[-1], base_actions[-2])
+    base_events = _late_correlation_events()
+    events = (base_events[0], base_events[2], base_events[1])
+
+    failure = detect_failure(
+        actions,
+        events,
+        fixture_id=LATE_RESPONSE_FIXTURE_ID,
+    )
+
+    assert failure is not None
+    assert failure.kind == "differential.response_correlated_to_wrong_request"
+
+
+def test_correct_late_response_correlation_is_not_a_failure() -> None:
+    actions = (
+        *_late_cancellation_actions()[:-2],
+        Action("late-response", ActionKind.RESPONSE, target_action_id="call-a"),
+        Action("current-response", ActionKind.RESPONSE, target_action_id="call-b"),
+    )
+    failure = detect_failure(
+        actions,
+        (
+            {
+                "kind": "response",
+                "mcp_request_id": 1,
+                "payload": {},
+                "target_action_id": "session-initialize",
+            },
+            {
+                "kind": "response",
+                "mcp_request_id": 21,
+                "payload": {
+                    "content": [],
+                    "structuredContent": {"fixtureCanary": "call-a"},
+                },
+                "target_action_id": "call-a",
+            },
+            {
+                "kind": "response",
+                "mcp_request_id": 22,
+                "payload": {
+                    "content": [],
+                    "structuredContent": {"fixtureCanary": "call-b"},
+                },
+                "target_action_id": "call-b",
+            },
+        ),
+        fixture_id=LATE_RESPONSE_FIXTURE_ID,
+    )
+
+    assert failure is None
+
+
+def test_correlation_signature_ignores_wire_ids_and_canary_values() -> None:
+    def signature_for(first_id: int, second_id: int, first: str, second: str) -> str:
+        actions = list(_late_cancellation_actions())
+        actions[3] = replace(
+            actions[3],
+            mcp_request_id=first_id,
+            payload={
+                "arguments": {"fixtureCanary": first},
+                "name": "fixture",
+            },
+        )
+        actions[4] = replace(actions[4], mcp_request_id=first_id)
+        actions[5] = replace(
+            actions[5],
+            mcp_request_id=second_id,
+            payload={
+                "arguments": {"fixtureCanary": second},
+                "name": "fixture",
+            },
+        )
+        failure = detect_failure(
+            actions,
+            (
+                {
+                    "kind": "response",
+                    "mcp_request_id": 1,
+                    "payload": {},
+                    "target_action_id": "session-initialize",
+                },
+                {
+                    "kind": "response",
+                    "mcp_request_id": second_id,
+                    "payload": {
+                        "content": [],
+                        "structuredContent": {"fixtureCanary": first},
+                    },
+                    "target_action_id": "call-b",
+                },
+                {
+                    "kind": "response",
+                    "mcp_request_id": first_id,
+                    "payload": {
+                        "content": [],
+                        "structuredContent": {"fixtureCanary": second},
+                    },
+                    "target_action_id": "call-a",
+                },
+            ),
+            fixture_id=LATE_RESPONSE_FIXTURE_ID,
+        )
+        assert failure is not None
+        return failure.signature
+
+    assert signature_for(21, 22, "call-a", "call-b") == signature_for(
+        700,
+        900,
+        "first-canary",
+        "second-canary",
+    )

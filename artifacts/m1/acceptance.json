@@ -24,6 +24,6 @@
   "schema_version": 1,
   "status": "passed",
   "suite": "full",
-  "tests_passed": 111,
+  "tests_passed": 121,
   "timeout_seconds": 60
 }

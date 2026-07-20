@@ -16,6 +16,7 @@ from mcp_statecheck.replay import ReplayResult, replay_stdio_failure
 from mcp_statecheck.stateful import (
     ShrinkResult,
     shrink_duplicate_request_id,
+    shrink_late_response_correlation,
     shrink_request_before_initialize,
 )
 from mcp_statecheck.trace import TraceRecorder
@@ -26,6 +27,7 @@ DEFAULT_FIXTURE_ID = "request-before-initialized"
 M2_FIXTURE_IDS = (
     DEFAULT_FIXTURE_ID,
     "duplicate-concurrent-request-id",
+    "late-response-after-cancellation",
 )
 DEFAULT_OUTPUTS = {
     fixture_id: ROOT / "artifacts" / "m2" / f"{fixture_id}.json"
@@ -34,6 +36,7 @@ DEFAULT_OUTPUTS = {
 DEFAULT_SEEDS = {
     "request-before-initialized": 20_260_716,
     "duplicate-concurrent-request-id": 20_260_717,
+    "late-response-after-cancellation": 20_260_720,
 }
 REPLAY_ATTEMPTS = 10
 
@@ -103,6 +106,12 @@ def _shrink(
             seed=seed,
             timeout=timeout,
         )
+    if fixture_id == "late-response-after-cancellation":
+        return shrink_late_response_correlation(
+            command,
+            seed=seed,
+            timeout=timeout,
+        )
     raise ValueError(f"unsupported M2 fixture: {fixture_id}")
 
 
@@ -129,11 +138,13 @@ async def _replay_saved(
     signature: str,
     command: tuple[str, ...],
     timeout: float,
+    fixture_id: str,
 ) -> ReplayResult:
     return await replay_stdio_failure(
         actions,
         command,
         expected_signature=signature,
+        fixture_id=fixture_id,
         attempts=REPLAY_ATTEMPTS,
         timeout=timeout,
     )
@@ -175,6 +186,7 @@ def build_artifact(
             saved_signature,
             command,
             timeout,
+            fixture_id,
         )
     recorder.set_replay(
         attempts=len(replay.attempts),

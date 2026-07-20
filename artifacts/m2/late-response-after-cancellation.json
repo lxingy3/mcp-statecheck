@@ -1,0 +1,337 @@
+{
+  "adapter": "wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize",
+      "capabilities": {},
+      "kind": "initialize",
+      "mcp_request_id": 1,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2025-11-25",
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "initialize-response",
+      "capabilities": {
+        "tools": {}
+      },
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2025-11-25",
+      "resume_token": null,
+      "sequence": 2,
+      "stream_id": null,
+      "target_action_id": "initialize"
+    },
+    {
+      "action_id": "initialized",
+      "capabilities": null,
+      "kind": "initialized",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 4,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "call-a",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 21,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "fixtureCanary": "call-a"
+        },
+        "name": "fixture"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 5,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "cancel-a",
+      "capabilities": null,
+      "kind": "cancel",
+      "mcp_request_id": 21,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 6,
+      "stream_id": null,
+      "target_action_id": "call-a"
+    },
+    {
+      "action_id": "call-b",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 22,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "fixtureCanary": "call-b"
+        },
+        "name": "fixture"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 7,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "misattributed-late-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 8,
+      "stream_id": null,
+      "target_action_id": "call-b"
+    },
+    {
+      "action_id": "misattributed-current-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 10,
+      "stream_id": null,
+      "target_action_id": "call-a"
+    }
+  ],
+  "cleanup": {
+    "shrink_peer_reaped": true,
+    "shrink_peer_returncode": 0
+  },
+  "failure": {
+    "evidence": {
+      "cancellation_context": "after_cancellation",
+      "correlation": "wrong_request",
+      "direction": "server_to_client",
+      "expected_canary": "call-b",
+      "observed_canary": "call-a",
+      "oracle": "fixture_canary",
+      "response_mcp_request_id": 22,
+      "source_action_id": "call-a",
+      "source_request_status": "cancelled",
+      "subject": "server",
+      "target_action_id": "call-b"
+    },
+    "kind": "differential.response_correlated_to_wrong_request",
+    "minimized_reproducer": [
+      {
+        "action_id": "initialize",
+        "capabilities": {},
+        "kind": "initialize",
+        "mcp_request_id": 1,
+        "method": null,
+        "payload": null,
+        "protocol_version": "2025-11-25",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "initialize-response",
+        "capabilities": {
+          "tools": {}
+        },
+        "kind": "response",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": "2025-11-25",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": "initialize"
+      },
+      {
+        "action_id": "initialized",
+        "capabilities": null,
+        "kind": "initialized",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "call-a",
+        "capabilities": null,
+        "kind": "request",
+        "mcp_request_id": 21,
+        "method": "tools/call",
+        "payload": {
+          "arguments": {
+            "fixtureCanary": "call-a"
+          },
+          "name": "fixture"
+        },
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "cancel-a",
+        "capabilities": null,
+        "kind": "cancel",
+        "mcp_request_id": 21,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": "call-a"
+      },
+      {
+        "action_id": "call-b",
+        "capabilities": null,
+        "kind": "request",
+        "mcp_request_id": 22,
+        "method": "tools/call",
+        "payload": {
+          "arguments": {
+            "fixtureCanary": "call-b"
+          },
+          "name": "fixture"
+        },
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "misattributed-late-response",
+        "capabilities": null,
+        "kind": "response",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": "call-b"
+      },
+      {
+        "action_id": "misattributed-current-response",
+        "capabilities": null,
+        "kind": "response",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": "call-a"
+      }
+    ],
+    "signature": "mcp-statecheck:v1:a1107b3b1e4ddfa1a9d16bd82f94810c77e6b43c7eee8844be089a4c7550ff1c",
+    "spec_reference": "https://modelcontextprotocol.io/specification/2025-11-25/basic/index#responses",
+    "trigger_action_id": "call-b"
+  },
+  "fixture_id": "late-response-after-cancellation",
+  "generation": {
+    "engine": "Hypothesis RuleBasedStateMachine",
+    "settings": {
+      "database": null,
+      "deadline": null,
+      "max_examples": 50,
+      "phases": [
+        "generate",
+        "shrink"
+      ],
+      "report_multiple_bugs": false,
+      "stateful_step_count": 8
+    },
+    "version": "6.156.6"
+  },
+  "normalized_events": [
+    {
+      "kind": "response",
+      "mcp_request_id": 1,
+      "outcome": "success",
+      "payload": {
+        "capabilities": {
+          "tools": {}
+        },
+        "protocolVersion": "2025-11-25",
+        "serverInfo": {
+          "name": "controlled-peer",
+          "version": "0.1"
+        }
+      },
+      "sequence": 3,
+      "target_action_id": "initialize"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 22,
+      "outcome": "success",
+      "payload": {
+        "content": [],
+        "structuredContent": {
+          "fixtureCanary": "call-a"
+        }
+      },
+      "sequence": 9,
+      "target_action_id": "call-b"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 21,
+      "outcome": "success",
+      "payload": {
+        "content": [],
+        "structuredContent": {
+          "fixtureCanary": "call-b"
+        }
+      },
+      "sequence": 11,
+      "target_action_id": "call-a"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "replay": {
+    "attempts": 10,
+    "matched": 10,
+    "returncodes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "signature": "mcp-statecheck:v1:a1107b3b1e4ddfa1a9d16bd82f94810c77e6b43c7eee8844be089a4c7550ff1c"
+  },
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 20260720,
+  "transport": "stdio"
+}

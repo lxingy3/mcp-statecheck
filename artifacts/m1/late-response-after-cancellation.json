@@ -36,14 +36,16 @@
   "fixture_id": "late-response-after-cancellation",
   "normalized_events": [
     {
-      "kind": "late_response",
+      "kind": "response",
       "sequence": 6,
-      "target_action_id": "call-a"
+      "source_action_id": "call-a",
+      "target_action_id": "call-b"
     },
     {
       "kind": "response",
       "sequence": 7,
-      "target_action_id": "call-b"
+      "source_action_id": "call-b",
+      "target_action_id": "call-a"
     }
   ],
   "protocol_version": "2025-11-25",

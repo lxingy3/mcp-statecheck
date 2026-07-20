@@ -21,6 +21,12 @@ DUPLICATE_ARTIFACT = (
     / "m2"
     / "duplicate-concurrent-request-id.json"
 )
+LATE_CORRELATION_ARTIFACT = (
+    Path(__file__).parents[1]
+    / "artifacts"
+    / "m2"
+    / "late-response-after-cancellation.json"
+)
 
 
 def test_request_before_initialized_slice_is_deterministic(tmp_path) -> None:
@@ -97,6 +103,65 @@ def test_duplicate_request_id_slice_matches_its_golden_artifact(tmp_path) -> Non
     )
     assert artifact["replay"]["attempts"] == 10
     assert artifact["replay"]["matched"] == 10
+
+
+def test_late_response_correlation_slice_matches_its_golden_artifact(
+    tmp_path,
+) -> None:
+    generated = tmp_path / "late-response-after-cancellation.json"
+
+    m2_script.build_artifact(
+        generated,
+        fixture_id="late-response-after-cancellation",
+        seed=20_260_720,
+        timeout=5,
+    )
+
+    assert generated.read_bytes() == LATE_CORRELATION_ARTIFACT.read_bytes()
+    artifact = json.loads(generated.read_text(encoding="utf-8"))
+    outbound_action_ids = [
+        action["action_id"]
+        for action in artifact["failure"]["minimized_reproducer"]
+        if action["kind"] != "response"
+    ]
+    assert outbound_action_ids == list(
+        fixture_by_id("late-response-after-cancellation").minimum_actions
+    )
+    assert artifact["failure"]["kind"] == (
+        "differential.response_correlated_to_wrong_request"
+    )
+    assert artifact["failure"]["evidence"]["subject"] == "server"
+    assert [event["target_action_id"] for event in artifact["normalized_events"]] == [
+        "initialize",
+        "call-b",
+        "call-a",
+    ]
+    assert [
+        event["payload"].get("structuredContent", {}).get("fixtureCanary")
+        for event in artifact["normalized_events"][1:]
+    ] == ["call-a", "call-b"]
+    action_sequences = {
+        action["action_id"]: action["sequence"]
+        for action in artifact["canonical_actions"]
+    }
+    event_sequences = [event["sequence"] for event in artifact["normalized_events"]]
+    assert (
+        action_sequences["initialize-response"]
+        < event_sequences[0]
+        < action_sequences["initialized"]
+    )
+    assert (
+        action_sequences["call-b"]
+        < action_sequences["misattributed-late-response"]
+        < event_sequences[1]
+    )
+    assert artifact["cleanup"] == {
+        "shrink_peer_reaped": True,
+        "shrink_peer_returncode": 0,
+    }
+    assert artifact["replay"]["attempts"] == 10
+    assert artifact["replay"]["matched"] == 10
+    assert artifact["replay"]["returncodes"] == [0] * 10
 
 
 def test_replay_failure_preserves_existing_artifact(tmp_path, monkeypatch) -> None:
