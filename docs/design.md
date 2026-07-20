@@ -84,15 +84,12 @@ only.
 
 ## M2 implementation status
 
-M2 is being delivered as one complete fixture slice at a time. Two slices are
-complete:
+M2 is being delivered as one complete fixture slice at a time. Three slices
+are complete. Each slice:
 
 - a seeded Hypothesis `RuleBasedStateMachine` generates canonical actions and
   executes each failing candidate against a real stdio peer;
-- the lifecycle invariant classifies the client's non-ping request while the
-  initialize response is still outstanding;
 - the failure signature excludes internal action IDs and wire request IDs;
-- Hypothesis shrinks the trace to `initialize` followed by `tools/list`;
 - the minimized trace is saved, loaded back from disk, and replayed against ten
   fresh peer processes with one signature and clean exits.
 
@@ -102,9 +99,21 @@ by the fixture plus one explicit initialize-response barrier used to preserve
 wire order. Its invariant classifies the requestor's ID reuse; reversed,
 ambiguous responses remain observations and are not attributed to the server.
 
+`late-response-after-cancellation` shrinks to five outbound actions plus three
+explicit response barriers. The [MCP cancellation specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation)
+allows cancellation and response delivery to race, so a late response alone is
+not a failure. Instead, the controlled peer waits until a later call is pending
+and cross-swaps per-request fixture canaries. The differential oracle requires
+an explicit fixture scope, a cancellation ID matching the source request, and
+the full reciprocal swap before classifying the result as a response-correlation
+failure. It does not assume an order for the two concurrent responses. The
+canaries are controlled-fixture evidence, not a general semantic invariant for
+arbitrary MCP servers; the corresponding normative rule is that each
+[response carries the ID of its request](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#responses).
+
 The versioned evidence is checked in under `artifacts/m2/`. This is not the M2
-milestone gate: the other three controlled defects and the differential oracle
-remain to be completed.
+milestone gate: the other two controlled defects and broader differential
+comparison remain to be completed.
 
 ## v0.1 release gate
 

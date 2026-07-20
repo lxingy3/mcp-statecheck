@@ -12,8 +12,8 @@ wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
 > This project is pre-alpha. M0 and M1 are complete; M2 is in progress. The
-> first two seeded failures now generate, shrink, persist, and
-> replay over real stdio peers. Differential comparison, the remaining three
+> first three seeded failures now generate, shrink, persist, and replay over
+> real stdio peers. Broader differential comparison, the remaining two
 > fixtures, SDK runners, reports, and the CLI are still ahead.
 
 ## What works today
@@ -26,7 +26,7 @@ wire behavior as deterministic, redacted traces.
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
-| M2 slices 1–2 | Seeded RuleBasedStateMachine generation, stable normative signatures, shrinking, saved-trace reload, and 10-run replay |
+| M2 slices 1-3 | Seeded RuleBasedStateMachine generation, stable failure signatures, shrinking, saved-trace reload, and 10-run replay |
 
 ```mermaid
 flowchart LR
@@ -36,12 +36,12 @@ flowchart LR
     D --> E["Wire observations"]
     B --> F["Versioned trace"]
     E --> F
-    F --> G["Hypothesis shrink<br/>(first two M2 slices)"]
+    F --> G["Hypothesis shrink<br/>(first three M2 slices)"]
     G --> H["Saved-trace reload<br/>and 10-run replay"]
 ```
 
 The checked-in [M1 acceptance report](artifacts/m1/acceptance.json) records
-Python 3.12.13, 111 passing tests, and all five M1 fixture checks within a
+Python 3.12.13, 121 passing tests, and all five M1 fixture checks within a
 60-second hard deadline. CI runs the locked project on Ubuntu and Windows.
 
 ## Reproduce the M1 baseline
@@ -65,7 +65,7 @@ A successful report currently includes:
   "milestone": "M1",
   "python": "3.12.13",
   "status": "passed",
-  "tests_passed": 111
+  "tests_passed": 121
 }
 ```
 
@@ -77,7 +77,7 @@ A successful report currently includes:
 | `duplicate-concurrent-request-id` | stdio | Two pending calls retain separate logical identities despite sharing one MCP request ID |
 | `second-sse-resume-token-loss` | Streamable HTTP | Each reconnect sends the newest event ID |
 | `request-before-initialized` | stdio | A request issued before initialization completes remains visible in the trace |
-| `late-response-after-cancellation` | stdio | A late cancelled response does not consume the next call |
+| `late-response-after-cancellation` | stdio | A cancelled result is cross-correlated with the later call |
 
 For example, the HTTP error fixture records the protocol result and cleanup
 state separately:
@@ -100,20 +100,27 @@ state separately:
 ```
 
 M1 preserves the observations required for later detection. It does not yet
-claim the final five-fixture gate. Two M2 slices now close that loop:
+claim the final five-fixture gate. Three M2 slices now close that loop:
 
 ```console
 $ uv run python scripts/run_m2_slice.py
 M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/request-before-initialized.json
 $ uv run python scripts/run_m2_slice.py --fixture duplicate-concurrent-request-id
 M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/duplicate-concurrent-request-id.json
+$ uv run python scripts/run_m2_slice.py --fixture late-response-after-cancellation
+M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/late-response-after-cancellation.json
 ```
 
 Hypothesis reduces the generated sequence to `initialize` followed by
 `tools/list` for the lifecycle case, and to two overlapping `tools/call`
-requests sharing one ID for the request-identity case. Each saved trace is
-loaded from disk and replayed against ten fresh peer processes; every run
-produces the expected stable signature.
+requests sharing one ID for the request-identity case. The cancellation case
+uses fixture canaries to detect a full response cross-swap after `call-a` is
+cancelled and `call-b` is pending. That oracle is enabled only for this
+controlled fixture, and it verifies the cancellation request ID and both sides
+of the swap without assuming a response order. A late response alone is not
+classified as a failure. Each saved trace is loaded from disk and replayed
+against ten fresh peer processes; every run produces the expected stable
+signature.
 
 ## Project boundaries
 
@@ -133,7 +140,7 @@ outside the v0.1 scope.
 | --- | --- | --- |
 | M0 | Complete | Reproducible Python 3.12 environment, lockfile, design baseline, and cross-platform CI |
 | M1 | Complete | Canonical model, wire transports, trace recorder, and controlled peers |
-| M2 | In progress (2/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
+| M2 | In progress (3/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Planned | Isolated Python and TypeScript v1/v2 SDK runners |
 | M4 | Planned | CLI, JUnit/SARIF/HTML reports, GitHub Action, documentation, and the v0.1 gate |
 
@@ -148,6 +155,7 @@ publication remain blocked until the full
 - [M1 acceptance report](artifacts/m1/acceptance.json)
 - [M2 lifecycle failure](artifacts/m2/request-before-initialized.json)
 - [M2 duplicate request ID failure](artifacts/m2/duplicate-concurrent-request-id.json)
+- [M2 cancellation correlation failure](artifacts/m2/late-response-after-cancellation.json)
 
 ## License
 
