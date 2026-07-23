@@ -27,10 +27,19 @@ jobs:
       - run: >-
           uv run python scripts/run_m1_acceptance.py
           --output "${{ runner.temp }}/m1"
-      - name: Run completed M2 slices
-        timeout-minutes: 2
-        run: |
-          uv run python scripts/run_m2_slice.py --output "${{ runner.temp }}/m2/request-before-initialized.json"
-          uv run python scripts/run_m2_slice.py --fixture duplicate-concurrent-request-id --output "${{ runner.temp }}/m2/duplicate-concurrent-request-id.json"
-          uv run python scripts/run_m2_slice.py --fixture late-response-after-cancellation --output "${{ runner.temp }}/m2/late-response-after-cancellation.json"
+      - name: Run M2 HTTP classification slice
+        timeout-minutes: 4
+        run: uv run python scripts/run_m2_slice.py --fixture http-error-as-timeout --output "${{ runner.temp }}/m2/http-error-as-timeout.json"
+      - name: Run M2 lifecycle slice
+        timeout-minutes: 4
+        run: uv run python scripts/run_m2_slice.py --output "${{ runner.temp }}/m2/request-before-initialized.json"
+      - name: Run M2 duplicate request ID slice
+        timeout-minutes: 4
+        run: uv run python scripts/run_m2_slice.py --fixture duplicate-concurrent-request-id --output "${{ runner.temp }}/m2/duplicate-concurrent-request-id.json"
+      - name: Run M2 cancellation correlation slice
+        timeout-minutes: 4
+        run: uv run python scripts/run_m2_slice.py --fixture late-response-after-cancellation --output "${{ runner.temp }}/m2/late-response-after-cancellation.json"
+      - name: Run M2 SSE resume slice
+        timeout-minutes: 4
+        run: uv run python scripts/run_m2_slice.py --fixture second-sse-resume-token-loss --output "${{ runner.temp }}/m2/second-sse-resume-token-loss.json"
       - run: uv build
