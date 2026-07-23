@@ -84,14 +84,13 @@ only.
 
 ## M2 implementation status
 
-M2 is being delivered as one complete fixture slice at a time. Three slices
-are complete. Each slice:
+M2 is complete across all five controlled fixtures. Each slice:
 
 - a seeded Hypothesis `RuleBasedStateMachine` generates canonical actions and
-  executes each failing candidate against a real stdio peer;
+  executes each failing candidate against a real stdio or localhost HTTP peer;
 - the failure signature excludes internal action IDs and wire request IDs;
 - the minimized trace is saved, loaded back from disk, and replayed against ten
-  fresh peer processes with one signature and clean exits.
+  fresh peers with one signature and verified cleanup.
 
 `request-before-initialized` shrinks to `initialize` followed by `tools/list`.
 `duplicate-concurrent-request-id` shrinks to the four outbound actions defined
@@ -111,9 +110,24 @@ canaries are controlled-fixture evidence, not a general semantic invariant for
 arbitrary MCP servers; the corresponding normative rule is that each
 [response carries the ID of its request](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#responses).
 
-The versioned evidence is checked in under `artifacts/m2/`. This is not the M2
-milestone gate: the other two controlled defects and broader differential
-comparison remain to be completed.
+`http-error-as-timeout` first observes a real HTTP 503 through the correct
+transport path, then applies a controlled client-adapter fault that reports the
+same observation as a timeout. The differential oracle requires both the
+source status and the faulty classification, so a normal 503 or a real timeout
+does not fail.
+
+`second-sse-resume-token-loss` preserves the latest cursor in the canonical
+action while the controlled client adapter drops it only on the second
+reconnect. A successful initialize and the required initialized notification
+precede the stream actions. The peer records the actual `Last-Event-ID` headers
+as `[null, "cursor-1", null]`, plus the session and protocol headers. The
+[resumability guidance](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery)
+uses a SHOULD requirement, so this remains a fixture-scoped differential
+compatibility failure rather than a universal conformance claim.
+
+The five versioned failures are checked in under `artifacts/m2/`. This closes
+the controlled-fixture M2 gate. Real cross-SDK differential execution remains
+the M3 milestone.
 
 ## v0.1 release gate
 

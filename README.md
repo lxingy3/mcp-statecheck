@@ -11,10 +11,9 @@ cancel one, reconnect an SSE stream, or recover from an expired session.
 wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
-> This project is pre-alpha. M0 and M1 are complete; M2 is in progress. The
-> first three seeded failures now generate, shrink, persist, and replay over
-> real stdio peers. Broader differential comparison, the remaining two
-> fixtures, SDK runners, reports, and the CLI are still ahead.
+> This project is pre-alpha. M0-M2 are complete across all five controlled
+> fixtures. Real cross-SDK runners, reports, the CLI, and the v0.1 release gate
+> are still ahead.
 
 ## What works today
 
@@ -26,7 +25,7 @@ wire behavior as deterministic, redacted traces.
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
-| M2 slices 1-3 | Seeded RuleBasedStateMachine generation, stable failure signatures, shrinking, saved-trace reload, and 10-run replay |
+| M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
 
 ```mermaid
 flowchart LR
@@ -36,13 +35,13 @@ flowchart LR
     D --> E["Wire observations"]
     B --> F["Versioned trace"]
     E --> F
-    F --> G["Hypothesis shrink<br/>(first three M2 slices)"]
+    F --> G["Hypothesis shrink<br/>(all five controlled failures)"]
     G --> H["Saved-trace reload<br/>and 10-run replay"]
 ```
 
 The checked-in [M1 acceptance report](artifacts/m1/acceptance.json) records
-Python 3.12.13, 121 passing tests, and all five M1 fixture checks within a
-60-second hard deadline. CI runs the locked project on Ubuntu and Windows.
+Python 3.12.13, 148 passing tests, and all five M1 fixture checks within a
+180-second hard deadline. CI runs the locked project on Ubuntu and Windows.
 
 ## Reproduce the M1 baseline
 
@@ -65,7 +64,7 @@ A successful report currently includes:
   "milestone": "M1",
   "python": "3.12.13",
   "status": "passed",
-  "tests_passed": 121
+  "tests_passed": 148
 }
 ```
 
@@ -99,16 +98,20 @@ state separately:
 }
 ```
 
-M1 preserves the observations required for later detection. It does not yet
-claim the final five-fixture gate. Three M2 slices now close that loop:
+M1 preserves the observations required for detection. M2 now closes that loop
+for all five controlled defects:
 
 ```console
+$ uv run python scripts/run_m2_slice.py --fixture http-error-as-timeout
+M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/http-error-as-timeout.json
 $ uv run python scripts/run_m2_slice.py
 M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/request-before-initialized.json
 $ uv run python scripts/run_m2_slice.py --fixture duplicate-concurrent-request-id
 M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/duplicate-concurrent-request-id.json
 $ uv run python scripts/run_m2_slice.py --fixture late-response-after-cancellation
 M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/late-response-after-cancellation.json
+$ uv run python scripts/run_m2_slice.py --fixture second-sse-resume-token-loss
+M2 slice passed: minimized and replayed 10 times; wrote artifacts/m2/second-sse-resume-token-loss.json
 ```
 
 Hypothesis reduces the generated sequence to `initialize` followed by
@@ -119,8 +122,15 @@ cancelled and `call-b` is pending. That oracle is enabled only for this
 controlled fixture, and it verifies the cancellation request ID and both sides
 of the swap without assuming a response order. A late response alone is not
 classified as a failure. Each saved trace is loaded from disk and replayed
-against ten fresh peer processes; every run produces the expected stable
-signature.
+against ten fresh peers; every run produces the expected stable signature.
+
+The HTTP slice proves that a real 503 reached the transport before a controlled
+client adapter misclassifies it as a timeout. The SSE slice keeps the expected
+latest cursor in the canonical action while the controlled adapter omits it on
+the second reconnect, after the required initialized notification; the peer
+captures the actual cursor, session, and protocol headers. Each HTTP candidate
+and replay uses a fresh localhost peer, verifies client and listener cleanup,
+and verifies session deletion when a session was established.
 
 ## Project boundaries
 
@@ -140,7 +150,7 @@ outside the v0.1 scope.
 | --- | --- | --- |
 | M0 | Complete | Reproducible Python 3.12 environment, lockfile, design baseline, and cross-platform CI |
 | M1 | Complete | Canonical model, wire transports, trace recorder, and controlled peers |
-| M2 | In progress (3/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
+| M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Planned | Isolated Python and TypeScript v1/v2 SDK runners |
 | M4 | Planned | CLI, JUnit/SARIF/HTML reports, GitHub Action, documentation, and the v0.1 gate |
 
@@ -153,9 +163,11 @@ publication remain blocked until the full
 - [Design baseline](docs/design.md)
 - [MCP landscape snapshot](docs/research/2026-07-15-landscape.md)
 - [M1 acceptance report](artifacts/m1/acceptance.json)
+- [M2 HTTP classification failure](artifacts/m2/http-error-as-timeout.json)
 - [M2 lifecycle failure](artifacts/m2/request-before-initialized.json)
 - [M2 duplicate request ID failure](artifacts/m2/duplicate-concurrent-request-id.json)
 - [M2 cancellation correlation failure](artifacts/m2/late-response-after-cancellation.json)
+- [M2 SSE resume failure](artifacts/m2/second-sse-resume-token-loss.json)
 
 ## License
 
