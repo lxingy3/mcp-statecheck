@@ -120,6 +120,7 @@ def test_artifact_records_generation_and_replay_proof() -> None:
         matched=10,
         signature="mcp-statecheck:v1:stable",
         returncodes=(0,) * 10,
+        cleanups=({"child_reaped": True},) * 10,
     )
 
     artifact = recorder.artifact()
@@ -129,6 +130,7 @@ def test_artifact_records_generation_and_replay_proof() -> None:
     }
     assert artifact["replay"] == {
         "attempts": 10,
+        "cleanups": [{"child_reaped": True}] * 10,
         "matched": 10,
         "returncodes": [0] * 10,
         "signature": "mcp-statecheck:v1:stable",

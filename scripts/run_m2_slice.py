@@ -11,34 +11,58 @@ from tempfile import TemporaryDirectory
 
 import anyio
 
+from mcp_statecheck.fixtures import (
+    FIXTURES,
+    HTTP_ERROR_FIXTURE_ID,
+    SSE_RESUME_FIXTURE_ID,
+    fixture_by_id,
+)
 from mcp_statecheck.model import Action, ActionKind
-from mcp_statecheck.replay import ReplayResult, replay_stdio_failure
+from mcp_statecheck.replay import (
+    ReplayResult,
+    replay_http_failure,
+    replay_stdio_failure,
+)
 from mcp_statecheck.stateful import (
     ShrinkResult,
     shrink_duplicate_request_id,
+    shrink_http_error_as_timeout,
     shrink_late_response_correlation,
     shrink_request_before_initialize,
+    shrink_second_sse_resume_token_loss,
 )
 from mcp_statecheck.trace import TraceRecorder
 
 ROOT = Path(__file__).resolve().parents[1]
 PEER = ROOT / "tests" / "fixtures" / "peer.py"
 DEFAULT_FIXTURE_ID = "request-before-initialized"
-M2_FIXTURE_IDS = (
-    DEFAULT_FIXTURE_ID,
-    "duplicate-concurrent-request-id",
-    "late-response-after-cancellation",
-)
+M2_FIXTURE_IDS = tuple(fixture.fixture_id for fixture in FIXTURES)
 DEFAULT_OUTPUTS = {
     fixture_id: ROOT / "artifacts" / "m2" / f"{fixture_id}.json"
     for fixture_id in M2_FIXTURE_IDS
 }
 DEFAULT_SEEDS = {
+    HTTP_ERROR_FIXTURE_ID: 20_260_721,
     "request-before-initialized": 20_260_716,
     "duplicate-concurrent-request-id": 20_260_717,
     "late-response-after-cancellation": 20_260_720,
+    SSE_RESUME_FIXTURE_ID: 20_260_722,
 }
 REPLAY_ATTEMPTS = 10
+
+
+def _controlled_http_executor(fixture_id: str):
+    async def execute(
+        actions: tuple[Action, ...],
+        timeout: float,
+    ):
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from tests.fixtures.peer import execute_controlled_http_fault
+
+        return await execute_controlled_http_fault(actions, fixture_id, timeout)
+
+    return execute
 
 
 def _peer_command(fixture_id: str) -> tuple[str, ...]:
@@ -52,17 +76,21 @@ def _peer_command(fixture_id: str) -> tuple[str, ...]:
 
 
 def _recorder(result: ShrinkResult, fixture_id: str) -> TraceRecorder:
+    fixture = fixture_by_id(fixture_id)
+    cleanup = result.execution.cleanup or {
+        "shrink_peer_reaped": result.execution.returncode is not None,
+        "shrink_peer_returncode": result.execution.returncode,
+    }
     recorder = TraceRecorder(
         protocol_version="2025-11-25",
-        adapter="wire",
+        adapter=(
+            "controlled-wire" if fixture.transport == "streamable-http" else "wire"
+        ),
         sdk_version="none",
-        transport="stdio",
+        transport=fixture.transport,
         seed=result.seed,
         fixture_id=fixture_id,
-        cleanup={
-            "shrink_peer_reaped": result.execution.returncode is not None,
-            "shrink_peer_returncode": result.execution.returncode,
-        },
+        cleanup=cleanup,
         generation={
             "engine": "Hypothesis RuleBasedStateMachine",
             "settings": result.settings,
@@ -70,12 +98,24 @@ def _recorder(result: ShrinkResult, fixture_id: str) -> TraceRecorder:
         },
     )
     events = iter(result.execution.events)
+    event = next(events, None)
     for action in result.actions:
         recorder.record_action(action.to_dict())
-        if action.kind is ActionKind.RESPONSE:
-            recorder.record_event(next(events))
-    for event in events:
+        if fixture.transport == "streamable-http":
+            while (
+                event is not None and event.get("target_action_id") == action.action_id
+            ):
+                recorder.record_event(event)
+                event = next(events, None)
+        elif action.kind is ActionKind.RESPONSE:
+            if event is None:
+                raise RuntimeError("response action has no normalized event")
+            recorder.record_event(event)
+            event = next(events, None)
+    if event is not None:
         recorder.record_event(event)
+    for remaining_event in events:
+        recorder.record_event(remaining_event)
     recorder.set_failure(
         kind=result.failure.kind,
         spec_reference=result.failure.spec_reference,
@@ -89,11 +129,20 @@ def _recorder(result: ShrinkResult, fixture_id: str) -> TraceRecorder:
 
 def _shrink(
     fixture_id: str,
-    command: tuple[str, ...],
     *,
     seed: int,
     timeout: float,
 ) -> ShrinkResult:
+    if fixture_id in {HTTP_ERROR_FIXTURE_ID, SSE_RESUME_FIXTURE_ID}:
+        executor = _controlled_http_executor(fixture_id)
+        if fixture_id == HTTP_ERROR_FIXTURE_ID:
+            return shrink_http_error_as_timeout(executor, seed=seed, timeout=timeout)
+        return shrink_second_sse_resume_token_loss(
+            executor,
+            seed=seed,
+            timeout=timeout,
+        )
+    command = _peer_command(fixture_id)
     if fixture_id == "request-before-initialized":
         return shrink_request_before_initialize(
             command,
@@ -136,13 +185,22 @@ def _load_failure(path: Path) -> tuple[tuple[Action, ...], str]:
 async def _replay_saved(
     actions: tuple[Action, ...],
     signature: str,
-    command: tuple[str, ...],
     timeout: float,
     fixture_id: str,
 ) -> ReplayResult:
+    if fixture_id in {HTTP_ERROR_FIXTURE_ID, SSE_RESUME_FIXTURE_ID}:
+        executor = _controlled_http_executor(fixture_id)
+        return await replay_http_failure(
+            actions,
+            executor,
+            expected_signature=signature,
+            fixture_id=fixture_id,
+            attempts=REPLAY_ATTEMPTS,
+            timeout=timeout,
+        )
     return await replay_stdio_failure(
         actions,
-        command,
+        _peer_command(fixture_id),
         expected_signature=signature,
         fixture_id=fixture_id,
         attempts=REPLAY_ATTEMPTS,
@@ -164,10 +222,8 @@ def build_artifact(
             seed = DEFAULT_SEEDS[fixture_id]
         except KeyError as exc:
             raise ValueError(f"unsupported M2 fixture: {fixture_id}") from exc
-    command = _peer_command(fixture_id)
     result = _shrink(
         fixture_id,
-        command,
         seed=seed,
         timeout=timeout,
     )
@@ -184,7 +240,6 @@ def build_artifact(
             _replay_saved,
             saved_actions,
             saved_signature,
-            command,
             timeout,
             fixture_id,
         )
@@ -193,6 +248,11 @@ def build_artifact(
         matched=len(replay.attempts),
         signature=replay.expected_signature,
         returncodes=tuple(attempt.execution.returncode for attempt in replay.attempts),
+        cleanups=(
+            tuple(attempt.execution.cleanup for attempt in replay.attempts)
+            if fixture_by_id(fixture_id).transport == "streamable-http"
+            else None
+        ),
     )
     recorder.write(output)
     return output

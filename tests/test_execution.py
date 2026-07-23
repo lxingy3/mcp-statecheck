@@ -6,8 +6,16 @@ from pathlib import Path
 import anyio
 import pytest
 
-from mcp_statecheck.execution import ExecutionProtocolError, execute_stdio
+from mcp_statecheck.execution import (
+    ExecutionProtocolError,
+    execute_http,
+    execute_stdio,
+)
 from mcp_statecheck.model import Action, ActionKind
+from tests.fixtures.peer import (
+    ControlledHTTPPeer,
+    execute_controlled_http_fault,
+)
 
 PEER = Path(__file__).parent / "fixtures" / "peer.py"
 
@@ -283,5 +291,156 @@ def test_late_cancelled_result_can_be_correlated_to_the_wrong_request() -> None:
             event["payload"].get("structuredContent", {}).get("fixtureCanary")
             for event in result.events[1:]
         ] == ["call-a", "call-b"]
+
+    anyio.run(scenario)
+
+
+def _http_actions() -> tuple[Action, ...]:
+    return (
+        Action("connect", ActionKind.CONNECT),
+        Action(
+            "initialize",
+            ActionKind.INITIALIZE,
+            mcp_request_id=1,
+            protocol_version="2025-11-25",
+            capabilities={},
+        ),
+        Action("initialized", ActionKind.INITIALIZED),
+        Action(
+            "open-sse",
+            ActionKind.OPEN_STREAM,
+            stream_id="server-events",
+        ),
+        Action(
+            "resume-1",
+            ActionKind.RESUME_STREAM,
+            stream_id="server-events",
+            resume_token="cursor-1",
+        ),
+        Action(
+            "resume-2",
+            ActionKind.RESUME_STREAM,
+            stream_id="server-events",
+            resume_token="cursor-2",
+        ),
+    )
+
+
+def test_http_execution_uses_canonical_resume_tokens() -> None:
+    async def scenario() -> None:
+        with ControlledHTTPPeer("second-sse-resume-token-loss") as peer:
+            result = await execute_http(_http_actions(), peer.url, timeout=5)
+            assert peer.state.last_event_ids == [None, "cursor-1", "cursor-2"]
+            assert peer.state.session_ids == [peer.state.session_id] * 3
+            assert peer.state.protocol_versions == ["2025-11-25"] * 3
+            assert peer.state.delete_count == 1
+            assert peer.state.delete_session_ids == [peer.state.session_id]
+            assert peer.state.delete_protocol_versions == ["2025-11-25"]
+
+        sse_events = [event for event in result.events if event["kind"] == "sse_resume"]
+        assert [event["sent_last_event_id"] for event in sse_events] == [
+            None,
+            "cursor-1",
+            "cursor-2",
+        ]
+        assert [event["received_event_id"] for event in sse_events] == [
+            "cursor-1",
+            "cursor-2",
+            "cursor-3",
+        ]
+        assert result.returncode is None
+        assert result.stderr == ""
+        assert result.cleanup == {"client_closed": True}
+
+    anyio.run(scenario)
+
+
+def test_http_execution_stops_after_initialize_error() -> None:
+    async def scenario() -> None:
+        with ControlledHTTPPeer("initialize-error") as peer:
+            result = await execute_http(_http_actions()[:3], peer.url, timeout=5)
+            assert peer.state.post_methods == ["initialize"]
+
+        assert len(result.events) == 1
+        assert result.events[0]["outcome"] == "error"
+        assert result.events[0]["target_action_id"] == "initialize"
+        assert result.cleanup == {"client_closed": True}
+
+    anyio.run(scenario)
+
+
+def test_controlled_http_error_preserves_the_wire_status() -> None:
+    async def scenario() -> None:
+        with ControlledHTTPPeer("http-error-as-timeout") as peer:
+            wire_result = await execute_http(_http_actions()[:2], peer.url, timeout=5)
+        assert wire_result.events == (
+            {
+                "http_method": "POST",
+                "kind": "http_error",
+                "status": 503,
+                "target_action_id": "initialize",
+            },
+        )
+
+        result = await execute_controlled_http_fault(
+            _http_actions()[:2],
+            "http-error-as-timeout",
+            timeout=5,
+        )
+
+        assert result.events == (
+            {
+                "fixture_source_kind": "http_error",
+                "http_method": "POST",
+                "kind": "timeout",
+                "status": 503,
+                "target_action_id": "initialize",
+            },
+        )
+        assert result.cleanup == {
+            "client_closed": True,
+            "listener_closed": True,
+        }
+
+    anyio.run(scenario)
+
+
+def test_controlled_second_resume_drops_only_the_wire_token() -> None:
+    actions = _http_actions()
+
+    async def scenario() -> None:
+        result = await execute_controlled_http_fault(
+            actions,
+            "second-sse-resume-token-loss",
+            timeout=5,
+        )
+
+        sse_events = [event for event in result.events if event["kind"] == "sse_resume"]
+        assert [event["sent_last_event_id"] for event in sse_events] == [
+            None,
+            "cursor-1",
+            None,
+        ]
+        assert [event["peer_last_event_id"] for event in sse_events] == [
+            None,
+            "cursor-1",
+            None,
+        ]
+        assert [event["received_event_id"] for event in sse_events] == [
+            "cursor-1",
+            "cursor-2",
+            "cursor-3",
+        ]
+        assert [event["peer_protocol_version"] for event in sse_events] == [
+            "2025-11-25"
+        ] * 3
+        assert len({event["peer_session_id"] for event in sse_events}) == 1
+        assert actions[-1].resume_token == "cursor-2"
+        assert len({event["session_id"] for event in sse_events}) == 1
+        assert result.cleanup == {
+            "client_closed": True,
+            "listener_closed": True,
+            "session_deleted": True,
+        }
 
     anyio.run(scenario)

@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import __version__
 from .model import Action, ActionKind, JsonValue, canonical_json
-from .transports import StdioTransport
+from .transports import (
+    HTTPStatusError,
+    HTTPTimeout,
+    StdioTransport,
+    StreamableHTTPTransport,
+)
 
 
 class ExecutionProtocolError(Exception):
@@ -20,6 +25,7 @@ class ExecutionResult:
     events: tuple[dict[str, JsonValue], ...]
     returncode: int | None
     stderr: str
+    cleanup: dict[str, JsonValue] = field(default_factory=dict)
 
 
 async def execute_stdio(
@@ -73,6 +79,130 @@ async def execute_stdio(
             events.append(_normalize_response(await transport.receive(), pending))
 
     return ExecutionResult(tuple(events), transport.returncode, transport.stderr)
+
+
+async def execute_http(
+    actions: Sequence[Action], url: str, *, timeout: float = 5.0
+) -> ExecutionResult:
+    """Execute canonical actions against one Streamable HTTP endpoint."""
+
+    action_ids: set[str] = set()
+    supported = {
+        ActionKind.CONNECT,
+        ActionKind.INITIALIZE,
+        ActionKind.INITIALIZED,
+        ActionKind.OPEN_STREAM,
+        ActionKind.RESUME_STREAM,
+    }
+    for action in actions:
+        if not isinstance(action, Action):
+            raise TypeError("actions must contain Action values")
+        if action.action_id in action_ids:
+            raise ExecutionProtocolError(
+                f"duplicate internal action_id: {action.action_id}"
+            )
+        if action.kind not in supported:
+            raise ExecutionProtocolError(
+                f"unsupported HTTP action kind: {action.kind.value}"
+            )
+        action_ids.add(action.action_id)
+
+    events: list[dict[str, JsonValue]] = []
+    transport = StreamableHTTPTransport(url, timeout=timeout)
+    async with transport:
+        for action in actions:
+            if action.kind is ActionKind.CONNECT:
+                continue
+            if action.kind in (ActionKind.INITIALIZE, ActionKind.INITIALIZED):
+                message = _wire_message(action)
+                try:
+                    messages = await transport.send(message)
+                except HTTPStatusError as exc:
+                    events.append(_http_status_event(action, "POST", exc.status_code))
+                    break
+                except HTTPTimeout as exc:
+                    events.append(_http_timeout_event(action, "POST", exc.status_code))
+                    break
+                if action.kind is ActionKind.INITIALIZE:
+                    pending = {_id_key(action.mcp_request_id): [action.action_id]}
+                    normalized = [
+                        _normalize_response(message, pending) for message in messages
+                    ]
+                    events.extend(normalized)
+                    if normalized:
+                        if normalized[-1]["outcome"] != "success":
+                            break
+                        payload = normalized[-1]["payload"]
+                        if isinstance(payload, Mapping):
+                            version = payload.get("protocolVersion")
+                            if isinstance(version, str):
+                                transport.set_protocol_version(version)
+                continue
+
+            if not action.stream_id:
+                raise ExecutionProtocolError("stream action requires a stream_id")
+            cursor = transport.cursor(action.stream_id)
+            if action.kind is ActionKind.OPEN_STREAM:
+                if action.resume_token is not None:
+                    raise ExecutionProtocolError(
+                        "open_stream cannot include a resume token"
+                    )
+                sent_last_event_id = cursor
+                override = None
+            else:
+                override = action.resume_token
+                sent_last_event_id = cursor if override is None else override or None
+            try:
+                messages = await transport.resume(
+                    action.stream_id,
+                    last_event_id=override,
+                )
+            except HTTPStatusError as exc:
+                events.append(_http_status_event(action, "GET", exc.status_code))
+                break
+            except HTTPTimeout as exc:
+                events.append(_http_timeout_event(action, "GET", exc.status_code))
+                break
+            events.append(
+                {
+                    "kind": "sse_resume",
+                    "payload": canonical_json(messages[0]) if messages else None,
+                    "received_event_id": transport.cursor(action.stream_id),
+                    "sent_last_event_id": sent_last_event_id,
+                    "session_id": transport.session_id,
+                    "stream_id": action.stream_id,
+                    "target_action_id": action.action_id,
+                }
+            )
+
+    return ExecutionResult(
+        tuple(events),
+        None,
+        "",
+        cleanup={"client_closed": True},
+    )
+
+
+def _http_status_event(
+    action: Action, method: str, status: int
+) -> dict[str, JsonValue]:
+    return {
+        "http_method": method,
+        "kind": "http_error",
+        "status": status,
+        "target_action_id": action.action_id,
+    }
+
+
+def _http_timeout_event(
+    action: Action, method: str, status: int | None
+) -> dict[str, JsonValue]:
+    return {
+        "http_method": method,
+        "kind": "timeout",
+        "status": status,
+        "target_action_id": action.action_id,
+    }
 
 
 def _wire_message(action: Action) -> dict[str, JsonValue]:

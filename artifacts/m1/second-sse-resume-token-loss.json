@@ -7,21 +7,26 @@
       "sequence": 1
     },
     {
+      "action_id": "initialized",
+      "kind": "initialized",
+      "sequence": 2
+    },
+    {
       "action_id": "open-sse",
       "kind": "open_stream",
-      "sequence": 2
+      "sequence": 3
     },
     {
       "action_id": "resume-1",
       "cursor": "cursor-1",
       "kind": "resume",
-      "sequence": 3
+      "sequence": 4
     },
     {
       "action_id": "resume-2",
       "cursor": "cursor-2",
       "kind": "resume",
-      "sequence": 4
+      "sequence": 5
     }
   ],
   "cleanup": {
@@ -38,7 +43,7 @@
         "cursor-1",
         "cursor-2"
       ],
-      "sequence": 5,
+      "sequence": 6,
       "session_id": "[SESSION_1]"
     }
   ],

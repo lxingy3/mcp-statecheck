@@ -1,0 +1,325 @@
+{
+  "adapter": "controlled-wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize",
+      "capabilities": {},
+      "kind": "initialize",
+      "mcp_request_id": 1,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2025-11-25",
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "initialized",
+      "capabilities": null,
+      "kind": "initialized",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 3,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "open-sse",
+      "capabilities": null,
+      "kind": "open_stream",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 4,
+      "stream_id": "server-events",
+      "target_action_id": null
+    },
+    {
+      "action_id": "resume-1",
+      "capabilities": null,
+      "kind": "resume_stream",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": "cursor-1",
+      "sequence": 6,
+      "stream_id": "server-events",
+      "target_action_id": null
+    },
+    {
+      "action_id": "resume-2",
+      "capabilities": null,
+      "kind": "resume_stream",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": "cursor-2",
+      "sequence": 8,
+      "stream_id": "server-events",
+      "target_action_id": null
+    }
+  ],
+  "cleanup": {
+    "client_closed": true,
+    "listener_closed": true,
+    "session_deleted": true
+  },
+  "failure": {
+    "evidence": {
+      "direction": "client_to_server",
+      "expected_last_event_id": "cursor-2",
+      "last_event_id_state": "missing",
+      "observed_last_event_id": null,
+      "oracle": "fixture_sse_header",
+      "reconnect": "subsequent",
+      "reported_last_event_id": null,
+      "resume_ordinal": 2,
+      "session_scope": "same_session",
+      "stream_id": "server-events",
+      "stream_scope": "same_stream",
+      "subject": "client_adapter",
+      "target_action_id": "resume-2",
+      "transport": "streamable_http"
+    },
+    "kind": "differential.sse_resume_token_lost",
+    "minimized_reproducer": [
+      {
+        "action_id": "initialize",
+        "capabilities": {},
+        "kind": "initialize",
+        "mcp_request_id": 1,
+        "method": null,
+        "payload": null,
+        "protocol_version": "2025-11-25",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "initialized",
+        "capabilities": null,
+        "kind": "initialized",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "open-sse",
+        "capabilities": null,
+        "kind": "open_stream",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": "server-events",
+        "target_action_id": null
+      },
+      {
+        "action_id": "resume-1",
+        "capabilities": null,
+        "kind": "resume_stream",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": "cursor-1",
+        "stream_id": "server-events",
+        "target_action_id": null
+      },
+      {
+        "action_id": "resume-2",
+        "capabilities": null,
+        "kind": "resume_stream",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": "cursor-2",
+        "stream_id": "server-events",
+        "target_action_id": null
+      }
+    ],
+    "signature": "mcp-statecheck:v1:0f243dca5ddedb72115708cc6ddeb547817b647afa0a13a972db1ce44de74ff9",
+    "spec_reference": "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery",
+    "trigger_action_id": "resume-2"
+  },
+  "fixture_id": "second-sse-resume-token-loss",
+  "generation": {
+    "engine": "Hypothesis RuleBasedStateMachine",
+    "settings": {
+      "database": null,
+      "deadline": null,
+      "max_examples": 50,
+      "phases": [
+        "generate",
+        "shrink"
+      ],
+      "report_multiple_bugs": false,
+      "stateful_step_count": 8
+    },
+    "version": "6.156.6"
+  },
+  "normalized_events": [
+    {
+      "kind": "response",
+      "mcp_request_id": 1,
+      "outcome": "success",
+      "payload": {
+        "capabilities": {
+          "tools": {}
+        },
+        "protocolVersion": "2025-11-25",
+        "serverInfo": {
+          "name": "controlled-peer",
+          "version": "0.1"
+        }
+      },
+      "sequence": 2,
+      "target_action_id": "initialize"
+    },
+    {
+      "kind": "sse_resume",
+      "payload": {
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+          "sequence": 1
+        }
+      },
+      "peer_last_event_id": null,
+      "peer_protocol_version": "2025-11-25",
+      "peer_session_id": "[SESSION_1]",
+      "received_event_id": "cursor-1",
+      "sent_last_event_id": null,
+      "sequence": 5,
+      "session_id": "[SESSION_1]",
+      "stream_id": "server-events",
+      "target_action_id": "open-sse"
+    },
+    {
+      "kind": "sse_resume",
+      "payload": {
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+          "sequence": 2
+        }
+      },
+      "peer_last_event_id": "cursor-1",
+      "peer_protocol_version": "2025-11-25",
+      "peer_session_id": "[SESSION_1]",
+      "received_event_id": "cursor-2",
+      "sent_last_event_id": "cursor-1",
+      "sequence": 7,
+      "session_id": "[SESSION_1]",
+      "stream_id": "server-events",
+      "target_action_id": "resume-1"
+    },
+    {
+      "kind": "sse_resume",
+      "payload": {
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+          "sequence": 3
+        }
+      },
+      "peer_last_event_id": null,
+      "peer_protocol_version": "2025-11-25",
+      "peer_session_id": "[SESSION_1]",
+      "received_event_id": "cursor-3",
+      "sent_last_event_id": null,
+      "sequence": 9,
+      "session_id": "[SESSION_1]",
+      "stream_id": "server-events",
+      "target_action_id": "resume-2"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "replay": {
+    "attempts": 10,
+    "cleanups": [
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true,
+        "session_deleted": true
+      }
+    ],
+    "matched": 10,
+    "returncodes": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "signature": "mcp-statecheck:v1:0f243dca5ddedb72115708cc6ddeb547817b647afa0a13a972db1ce44de74ff9"
+  },
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 20260722,
+  "transport": "streamable-http"
+}

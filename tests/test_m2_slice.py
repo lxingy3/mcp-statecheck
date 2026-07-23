@@ -7,7 +7,12 @@ import pytest
 
 import scripts.run_m2_slice as m2_script
 from mcp_statecheck.execution import ExecutionResult
-from mcp_statecheck.fixtures import fixture_by_id
+from mcp_statecheck.fixtures import (
+    FIXTURES,
+    HTTP_ERROR_FIXTURE_ID,
+    SSE_RESUME_FIXTURE_ID,
+    fixture_by_id,
+)
 from mcp_statecheck.invariants import detect_failure
 from mcp_statecheck.model import Action, ActionKind
 from mcp_statecheck.stateful import ShrinkResult
@@ -27,6 +32,16 @@ LATE_CORRELATION_ARTIFACT = (
     / "m2"
     / "late-response-after-cancellation.json"
 )
+HTTP_ERROR_ARTIFACT = (
+    Path(__file__).parents[1] / "artifacts" / "m2" / f"{HTTP_ERROR_FIXTURE_ID}.json"
+)
+SSE_RESUME_ARTIFACT = (
+    Path(__file__).parents[1] / "artifacts" / "m2" / f"{SSE_RESUME_FIXTURE_ID}.json"
+)
+
+
+def test_m2_runner_covers_every_controlled_fixture() -> None:
+    assert m2_script.M2_FIXTURE_IDS == tuple(fixture.fixture_id for fixture in FIXTURES)
 
 
 def test_request_before_initialized_slice_is_deterministic(tmp_path) -> None:
@@ -162,6 +177,93 @@ def test_late_response_correlation_slice_matches_its_golden_artifact(
     assert artifact["replay"]["attempts"] == 10
     assert artifact["replay"]["matched"] == 10
     assert artifact["replay"]["returncodes"] == [0] * 10
+
+
+def test_http_error_timeout_slice_matches_its_golden_artifact(tmp_path) -> None:
+    generated = tmp_path / HTTP_ERROR_ARTIFACT.name
+
+    m2_script.build_artifact(
+        generated,
+        fixture_id=HTTP_ERROR_FIXTURE_ID,
+        seed=20_260_721,
+        timeout=5,
+    )
+
+    assert generated.read_bytes() == HTTP_ERROR_ARTIFACT.read_bytes()
+    artifact = json.loads(generated.read_text(encoding="utf-8"))
+    assert [action["action_id"] for action in artifact["canonical_actions"]] == list(
+        fixture_by_id(HTTP_ERROR_FIXTURE_ID).minimum_actions
+    )
+    assert artifact["adapter"] == "controlled-wire"
+    assert artifact["transport"] == "streamable-http"
+    assert artifact["failure"]["kind"] == (
+        "differential.http_status_reported_as_timeout"
+    )
+    assert artifact["failure"]["evidence"]["http_status"] == 503
+    assert artifact["normalized_events"][0]["fixture_source_kind"] == "http_error"
+    assert artifact["normalized_events"][0]["kind"] == "timeout"
+    assert artifact["cleanup"] == {
+        "client_closed": True,
+        "listener_closed": True,
+    }
+    assert artifact["replay"]["matched"] == 10
+    assert artifact["replay"]["returncodes"] == [None] * 10
+    assert (
+        artifact["replay"]["cleanups"]
+        == [{"client_closed": True, "listener_closed": True}] * 10
+    )
+
+
+def test_second_sse_resume_slice_matches_its_golden_artifact(tmp_path) -> None:
+    generated = tmp_path / SSE_RESUME_ARTIFACT.name
+
+    m2_script.build_artifact(
+        generated,
+        fixture_id=SSE_RESUME_FIXTURE_ID,
+        seed=20_260_722,
+        timeout=5,
+    )
+
+    assert generated.read_bytes() == SSE_RESUME_ARTIFACT.read_bytes()
+    artifact = json.loads(generated.read_text(encoding="utf-8"))
+    assert [action["action_id"] for action in artifact["canonical_actions"]] == list(
+        fixture_by_id(SSE_RESUME_FIXTURE_ID).minimum_actions
+    )
+    assert artifact["adapter"] == "controlled-wire"
+    assert artifact["failure"]["kind"] == "differential.sse_resume_token_lost"
+    assert artifact["failure"]["evidence"]["expected_last_event_id"] == "cursor-2"
+    sse_events = [
+        event
+        for event in artifact["normalized_events"]
+        if event["kind"] == "sse_resume"
+    ]
+    assert [event["peer_last_event_id"] for event in sse_events] == [
+        None,
+        "cursor-1",
+        None,
+    ]
+    assert [event["peer_protocol_version"] for event in sse_events] == [
+        "2025-11-25"
+    ] * 3
+    assert len({event["peer_session_id"] for event in sse_events}) == 1
+    assert artifact["cleanup"] == {
+        "client_closed": True,
+        "listener_closed": True,
+        "session_deleted": True,
+    }
+    assert artifact["replay"]["matched"] == 10
+    assert artifact["replay"]["returncodes"] == [None] * 10
+    assert (
+        artifact["replay"]["cleanups"]
+        == [
+            {
+                "client_closed": True,
+                "listener_closed": True,
+                "session_deleted": True,
+            }
+        ]
+        * 10
+    )
 
 
 def test_replay_failure_preserves_existing_artifact(tmp_path, monkeypatch) -> None:

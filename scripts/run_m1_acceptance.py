@@ -26,7 +26,7 @@ def main() -> int:
     environment = os.environ.copy()
     environment["MCP_STATECHECK_ARTIFACT_DIR"] = str(args.output.resolve())
     command = [sys.executable, "-m", "pytest", "-q"]
-    timeout_seconds = 60
+    timeout_seconds = 180
     try:
         completed = subprocess.run(
             command,

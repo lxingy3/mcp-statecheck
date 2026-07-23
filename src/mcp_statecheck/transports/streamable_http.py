@@ -329,8 +329,10 @@ class StreamableHTTPTransport:
             self.session_id = staged_session
         return messages
 
-    async def resume(self, stream: str = "default") -> list[dict[str, Any]]:
-        messages = self.iter_messages(stream)
+    async def resume(
+        self, stream: str = "default", *, last_event_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        messages = self.iter_messages(stream, last_event_id=last_event_id)
         try:
             with anyio.fail_after(self.timeout):
                 try:
@@ -345,15 +347,19 @@ class StreamableHTTPTransport:
             await messages.aclose()
 
     async def iter_messages(
-        self, stream: str = "default"
+        self, stream: str = "default", *, last_event_id: str | None = None
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield messages from one resumable GET SSE connection."""
         self._ensure_open()
+        if last_event_id is not None and not isinstance(last_event_id, str):
+            raise TypeError("last_event_id must be a string or null")
         sent_session = self.session_id
         response_status: int | None = None
         response: httpx.Response | None = None
         headers = self._request_headers(include_protocol=True, include_session=True)
-        cursor = self._cursors.get(stream)
+        cursor = (
+            last_event_id if last_event_id is not None else self._cursors.get(stream)
+        )
         if cursor:
             headers = self._with_utf8_header(headers, "Last-Event-ID", cursor)
         try:

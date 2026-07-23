@@ -19,13 +19,17 @@ from hypothesis.stateful import (
 )
 
 from .execution import ExecutionResult, execute_stdio
+from .fixtures import HTTP_ERROR_FIXTURE_ID, SSE_RESUME_FIXTURE_ID
 from .invariants import (
+    HTTP_STATUS_TIMEOUT_KIND,
     LATE_RESPONSE_FIXTURE_ID,
+    SSE_RESUME_TOKEN_LOST_KIND,
     WRONG_RESPONSE_CORRELATION_KIND,
     Failure,
     detect_failure,
 )
 from .model import Action, ActionKind, JsonValue
+from .replay import CandidateExecutor
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +300,116 @@ class _LateResponseCorrelationMachine(RuleBasedStateMachine):
             raise _Counterexample(self.actions, execution, failure)
 
 
+class _HTTPErrorAsTimeoutMachine(RuleBasedStateMachine):
+    def __init__(self, executor: CandidateExecutor, timeout: float) -> None:
+        super().__init__()
+        self._executor = executor
+        self._timeout = timeout
+        self._initialize_count = 0
+        self.actions: list[Action] = []
+
+    @initialize()
+    def connect(self) -> None:
+        self.actions.append(Action("connect", ActionKind.CONNECT))
+
+    @rule()
+    def initialize_request(self) -> None:
+        self._initialize_count += 1
+        suffix = "" if self._initialize_count == 1 else f"-{self._initialize_count}"
+        self.actions.append(
+            Action(
+                f"initialize{suffix}",
+                ActionKind.INITIALIZE,
+                mcp_request_id=self._initialize_count,
+                protocol_version="2025-11-25",
+                capabilities={},
+            )
+        )
+
+    def teardown(self) -> None:
+        if sys.exception() is not None or self._initialize_count == 0:
+            return
+        execution = anyio.run(
+            self._executor,
+            tuple(self.actions),
+            self._timeout,
+        )
+        failure = detect_failure(
+            self.actions,
+            execution.events,
+            fixture_id=HTTP_ERROR_FIXTURE_ID,
+        )
+        if failure is not None and failure.kind == HTTP_STATUS_TIMEOUT_KIND:
+            raise _Counterexample(self.actions, execution, failure)
+
+
+class _SecondSSEResumeTokenLossMachine(RuleBasedStateMachine):
+    def __init__(self, executor: CandidateExecutor, timeout: float) -> None:
+        super().__init__()
+        self._executor = executor
+        self._timeout = timeout
+        self._stream_added = False
+        self.actions: list[Action] = []
+
+    @initialize()
+    def initialize_connection(self) -> None:
+        self.actions.extend(
+            (
+                Action(
+                    "initialize",
+                    ActionKind.INITIALIZE,
+                    mcp_request_id=1,
+                    protocol_version="2025-11-25",
+                    capabilities={},
+                ),
+                Action("initialized", ActionKind.INITIALIZED),
+            )
+        )
+
+    @rule()
+    def second_resume(self) -> None:
+        if self._stream_added:
+            return
+        self._stream_added = True
+        self.actions.extend(
+            (
+                Action(
+                    "open-sse",
+                    ActionKind.OPEN_STREAM,
+                    stream_id="server-events",
+                ),
+                Action(
+                    "resume-1",
+                    ActionKind.RESUME_STREAM,
+                    stream_id="server-events",
+                    resume_token="cursor-1",
+                ),
+                Action(
+                    "resume-2",
+                    ActionKind.RESUME_STREAM,
+                    stream_id="server-events",
+                    resume_token="cursor-2",
+                ),
+            )
+        )
+
+    def teardown(self) -> None:
+        if sys.exception() is not None or not self._stream_added:
+            return
+        execution = anyio.run(
+            self._executor,
+            tuple(self.actions),
+            self._timeout,
+        )
+        failure = detect_failure(
+            self.actions,
+            execution.events,
+            fixture_id=SSE_RESUME_FIXTURE_ID,
+        )
+        if failure is not None and failure.kind == SSE_RESUME_TOKEN_LOST_KIND:
+            raise _Counterexample(self.actions, execution, failure)
+
+
 async def _execute_candidate(
     actions: tuple[Action, ...], command: tuple[str, ...], timeout: float
 ) -> ExecutionResult:
@@ -310,18 +424,52 @@ def _validated_shrink_command(
     max_examples: int,
     stateful_step_count: int,
 ) -> tuple[str, ...]:
+    _validate_shrink_options(
+        seed=seed,
+        timeout=timeout,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+    )
     normalized_command = tuple(command)
     if not normalized_command or not all(
         isinstance(part, str) and part for part in normalized_command
     ):
         raise ValueError("command must contain non-empty strings")
+    return normalized_command
+
+
+def _validated_candidate_executor(
+    executor: CandidateExecutor,
+    *,
+    seed: int,
+    timeout: float,
+    max_examples: int,
+    stateful_step_count: int,
+) -> CandidateExecutor:
+    _validate_shrink_options(
+        seed=seed,
+        timeout=timeout,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+    )
+    if not callable(executor):
+        raise TypeError("executor must be callable")
+    return executor
+
+
+def _validate_shrink_options(
+    *,
+    seed: int,
+    timeout: float,
+    max_examples: int,
+    stateful_step_count: int,
+) -> None:
     if not isinstance(seed, int) or isinstance(seed, bool):
         raise TypeError("seed must be an integer")
     if not isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be finite and positive")
     if max_examples <= 0 or stateful_step_count <= 0:
         raise ValueError("Hypothesis limits must be positive")
-    return normalized_command
 
 
 def _run_machine(
@@ -452,4 +600,64 @@ def shrink_late_response_correlation(
         max_examples=max_examples,
         stateful_step_count=stateful_step_count,
         no_failure_message="no late-response correlation failure was generated",
+    )
+
+
+def shrink_http_error_as_timeout(
+    executor: CandidateExecutor,
+    *,
+    seed: int,
+    timeout: float = 5.0,
+    max_examples: int = 50,
+    stateful_step_count: int = 8,
+) -> ShrinkResult:
+    """Find and shrink an HTTP error misclassified as a timeout."""
+
+    validated_executor = _validated_candidate_executor(
+        executor,
+        seed=seed,
+        timeout=timeout,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+    )
+
+    def factory() -> _HTTPErrorAsTimeoutMachine:
+        return _HTTPErrorAsTimeoutMachine(validated_executor, timeout)
+
+    return _run_machine(
+        factory,
+        seed=seed,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+        no_failure_message="no HTTP error-as-timeout failure was generated",
+    )
+
+
+def shrink_second_sse_resume_token_loss(
+    executor: CandidateExecutor,
+    *,
+    seed: int,
+    timeout: float = 5.0,
+    max_examples: int = 50,
+    stateful_step_count: int = 8,
+) -> ShrinkResult:
+    """Find and shrink a second SSE resume that loses the latest cursor."""
+
+    validated_executor = _validated_candidate_executor(
+        executor,
+        seed=seed,
+        timeout=timeout,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+    )
+
+    def factory() -> _SecondSSEResumeTokenLossMachine:
+        return _SecondSSEResumeTokenLossMachine(validated_executor, timeout)
+
+    return _run_machine(
+        factory,
+        seed=seed,
+        max_examples=max_examples,
+        stateful_step_count=stateful_step_count,
+        no_failure_message="no second SSE resume token failure was generated",
     )

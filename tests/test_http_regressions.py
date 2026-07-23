@@ -350,6 +350,34 @@ def test_resume_returns_one_message_and_closes_long_lived_get() -> None:
     run(scenario)
 
 
+def test_resume_can_override_the_stored_event_id() -> None:
+    observed: list[str | None] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request.headers.get("Last-Event-ID"))
+        event_id = f"cursor-{len(observed)}"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=(
+                f'id: {event_id}\ndata: {{"jsonrpc":"2.0","method":"tick"}}\n\n'
+            ).encode(),
+        )
+
+    async def scenario() -> None:
+        transport = StreamableHTTPTransport(
+            "https://example.test/mcp",
+            transport=httpx.MockTransport(handler),
+        )
+        await transport.resume("events")
+        await transport.resume("events", last_event_id="stale-cursor")
+        assert transport.cursor("events") == "cursor-2"
+        await transport.close()
+
+    run(scenario)
+    assert observed == [None, "stale-cursor"]
+
+
 def test_incomplete_sse_id_is_not_committed_as_cursor() -> None:
     body = OneThenStall(b"id: uncommitted\n")
 

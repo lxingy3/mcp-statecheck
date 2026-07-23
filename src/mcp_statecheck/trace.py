@@ -371,6 +371,7 @@ class TraceRecorder:
         matched: int,
         signature: str,
         returncodes: Sequence[int | None],
+        cleanups: Sequence[Mapping[str, object]] | None = None,
     ) -> None:
         """Attach deterministic replay evidence to this trace."""
 
@@ -392,18 +393,24 @@ class TraceRecorder:
             for returncode in returncodes
         ):
             raise TypeError("replay returncodes must contain integers or null")
+        if cleanups is not None:
+            if len(cleanups) != attempts:
+                raise ValueError("replay cleanups must match attempts")
+            if not all(isinstance(cleanup, Mapping) for cleanup in cleanups):
+                raise TypeError("replay cleanups must contain objects")
 
         with self._lock:
             if self._replay is not None:
                 raise RuntimeError("trace replay is already set")
-            replay = self._redactor.redact(
-                {
-                    "attempts": attempts,
-                    "matched": matched,
-                    "returncodes": list(returncodes),
-                    "signature": signature,
-                }
-            )
+            replay_data: dict[str, object] = {
+                "attempts": attempts,
+                "matched": matched,
+                "returncodes": list(returncodes),
+                "signature": signature,
+            }
+            if cleanups is not None:
+                replay_data["cleanups"] = list(cleanups)
+            replay = self._redactor.redact(replay_data)
             if not isinstance(replay, dict):
                 raise AssertionError("replay must be an object")
             self._replay = replay

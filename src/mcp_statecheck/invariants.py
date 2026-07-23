@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from .fixtures import HTTP_ERROR_FIXTURE_ID, SSE_RESUME_FIXTURE_ID
 from .model import (
     Action,
     ActionKind,
@@ -30,6 +31,16 @@ RESPONSE_CORRELATION_SPEC = (
 )
 LATE_RESPONSE_FIXTURE_ID = "late-response-after-cancellation"
 WRONG_RESPONSE_CORRELATION_KIND = "differential.response_correlated_to_wrong_request"
+HTTP_TRANSPORT_SPEC = (
+    "https://modelcontextprotocol.io/specification/2025-11-25/"
+    "basic/transports#sending-messages-to-the-server"
+)
+HTTP_STATUS_TIMEOUT_KIND = "differential.http_status_reported_as_timeout"
+SSE_RESUME_SPEC = (
+    "https://modelcontextprotocol.io/specification/2025-11-25/"
+    "basic/transports#resumability-and-redelivery"
+)
+SSE_RESUME_TOKEN_LOST_KIND = "differential.sse_resume_token_lost"
 CONNECTION_BOUNDARIES = {
     ActionKind.CONNECT,
     ActionKind.RECONNECT,
@@ -162,8 +173,213 @@ def detect_failure(
             initialize_action_id = None
             session_active = False
             used_request_ids.clear()
+    if fixture_id == HTTP_ERROR_FIXTURE_ID:
+        return _detect_http_status_as_timeout(actions, events)
+    if fixture_id == SSE_RESUME_FIXTURE_ID:
+        return _detect_sse_resume_token_loss(actions, events)
     if fixture_id == LATE_RESPONSE_FIXTURE_ID:
         return _detect_fixture_canary_failure(actions, events)
+    return None
+
+
+def _detect_http_status_as_timeout(
+    actions: Sequence[Action], events: Sequence[Mapping[str, object]]
+) -> Failure | None:
+    actions_by_id = {action.action_id: action for action in actions}
+    positions = {action.action_id: index for index, action in enumerate(actions)}
+    for event in events:
+        target_action_id = event.get("target_action_id")
+        target = (
+            actions_by_id.get(target_action_id)
+            if isinstance(target_action_id, str)
+            else None
+        )
+        status = event.get("status")
+        if (
+            target is None
+            or target.kind is not ActionKind.INITIALIZE
+            or event.get("kind") != "timeout"
+            or event.get("fixture_source_kind") != "http_error"
+            or event.get("http_method") != "POST"
+            or type(status) is not int
+            or not 500 <= status <= 599
+        ):
+            continue
+        target_position = positions[target.action_id]
+        boundary_positions = [
+            index
+            for index, action in enumerate(actions[:target_position])
+            if action.kind in CONNECTION_BOUNDARIES
+        ]
+        if (
+            not boundary_positions
+            or actions[boundary_positions[-1]].kind is not ActionKind.CONNECT
+            or any(
+                action.kind is ActionKind.INITIALIZE
+                for action in actions[boundary_positions[-1] + 1 : target_position]
+            )
+        ):
+            continue
+        signature_evidence = {
+            "direction": "server_to_client",
+            "http_method": "POST",
+            "oracle": "fixture_http_status",
+            "reported_kind": "timeout",
+            "source_kind": "http_error",
+            "status_class": "5xx",
+            "subject": "client_adapter",
+        }
+        evidence: dict[str, JsonValue] = {
+            **signature_evidence,
+            "http_status": status,
+            "target_action_id": target.action_id,
+        }
+        return Failure(
+            kind=HTTP_STATUS_TIMEOUT_KIND,
+            spec_reference=HTTP_TRANSPORT_SPEC,
+            trigger_action_id=target.action_id,
+            evidence=evidence,
+            signature=_signature(HTTP_STATUS_TIMEOUT_KIND, signature_evidence),
+        )
+    return None
+
+
+def _detect_sse_resume_token_loss(
+    actions: Sequence[Action], events: Sequence[Mapping[str, object]]
+) -> Failure | None:
+    required_fields = {
+        "peer_last_event_id",
+        "peer_protocol_version",
+        "peer_session_id",
+        "received_event_id",
+        "sent_last_event_id",
+        "session_id",
+        "stream_id",
+        "target_action_id",
+    }
+    positions = {action.action_id: index for index, action in enumerate(actions)}
+    observations_by_target: dict[str, list[Mapping[str, object]]] = {}
+    for event in events:
+        target_action_id = event.get("target_action_id")
+        if event.get("kind") == "sse_resume" and isinstance(target_action_id, str):
+            observations_by_target.setdefault(target_action_id, []).append(event)
+
+    for opened in actions:
+        if opened.kind is not ActionKind.OPEN_STREAM or not opened.stream_id:
+            continue
+        resumes = [
+            action
+            for action in actions[positions[opened.action_id] + 1 :]
+            if action.kind is ActionKind.RESUME_STREAM
+            and action.stream_id == opened.stream_id
+        ]
+        for first_resume, second_resume in zip(resumes, resumes[1:], strict=False):
+            if (
+                not first_resume.resume_token
+                or not second_resume.resume_token
+                or first_resume.resume_token == second_resume.resume_token
+            ):
+                continue
+            event_groups = [
+                observations_by_target.get(action.action_id, [])
+                for action in (opened, first_resume, second_resume)
+            ]
+            if any(len(group) != 1 for group in event_groups):
+                continue
+            observations = tuple(group[0] for group in event_groups)
+            if any(not required_fields <= event.keys() for event in observations):
+                continue
+
+            initialize_positions = [
+                index
+                for index, action in enumerate(actions[: positions[opened.action_id]])
+                if action.kind is ActionKind.INITIALIZE
+            ]
+            if not initialize_positions:
+                continue
+            initialize_position = initialize_positions[-1]
+            initialize_action = actions[initialize_position]
+            if not any(
+                event.get("kind") == "response"
+                and event.get("target_action_id") == initialize_action.action_id
+                and event.get("outcome") == "success"
+                for event in events
+            ):
+                continue
+            between_initialize_and_open = actions[
+                initialize_position + 1 : positions[opened.action_id]
+            ]
+            if not any(
+                action.kind is ActionKind.INITIALIZED
+                for action in between_initialize_and_open
+            ) or any(
+                action.kind in CONNECTION_BOUNDARIES
+                or action.kind is ActionKind.INITIALIZE
+                for action in actions[
+                    initialize_position + 1 : positions[second_resume.action_id]
+                ]
+            ):
+                continue
+
+            open_event, first_event, second_event = observations
+            peer_session = open_event["peer_session_id"]
+            protocol_version = initialize_action.protocol_version
+            if (
+                any(event["stream_id"] != opened.stream_id for event in observations)
+                or not isinstance(peer_session, str)
+                or not peer_session
+                or any(
+                    event["peer_session_id"] != peer_session for event in observations
+                )
+                or not protocol_version
+                or any(
+                    event["peer_protocol_version"] != protocol_version
+                    for event in observations
+                )
+                or any(
+                    event["sent_last_event_id"] is not None
+                    and not isinstance(event["sent_last_event_id"], str)
+                    for event in observations
+                )
+                or open_event["peer_last_event_id"] is not None
+                or open_event["received_event_id"] != first_resume.resume_token
+                or first_event["peer_last_event_id"] != first_resume.resume_token
+                or first_event["received_event_id"] != second_resume.resume_token
+                or second_event["peer_last_event_id"] is not None
+                or not isinstance(second_event["received_event_id"], str)
+                or not second_event["received_event_id"]
+            ):
+                continue
+
+            signature_evidence = {
+                "direction": "client_to_server",
+                "last_event_id_state": "missing",
+                "oracle": "fixture_sse_header",
+                "reconnect": "subsequent",
+                "session_scope": "same_session",
+                "stream_scope": "same_stream",
+                "subject": "client_adapter",
+                "transport": "streamable_http",
+            }
+            evidence: dict[str, JsonValue] = {
+                **signature_evidence,
+                "expected_last_event_id": second_resume.resume_token,
+                "observed_last_event_id": None,
+                "reported_last_event_id": canonical_json(
+                    second_event["sent_last_event_id"],
+                    where="event.sent_last_event_id",
+                ),
+                "resume_ordinal": 2,
+                "stream_id": opened.stream_id,
+                "target_action_id": second_resume.action_id,
+            }
+            return Failure(
+                kind=SSE_RESUME_TOKEN_LOST_KIND,
+                spec_reference=SSE_RESUME_SPEC,
+                trigger_action_id=second_resume.action_id,
+                evidence=evidence,
+                signature=_signature(SSE_RESUME_TOKEN_LOST_KIND, signature_evidence),
+            )
     return None
 
 

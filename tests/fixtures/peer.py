@@ -7,10 +7,15 @@ import json
 import socket
 import sys
 import threading
+from collections.abc import Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mcp_statecheck.execution import ExecutionResult
+    from mcp_statecheck.model import Action
 
 INITIALIZE_RESULT = {
     "protocolVersion": "2025-11-25",
@@ -29,6 +34,12 @@ class PeerState:
     session_id: str = "fixture-session-sensitive"
     get_count: int = 0
     last_event_ids: list[str | None] = field(default_factory=list)
+    session_ids: list[str | None] = field(default_factory=list)
+    protocol_versions: list[str | None] = field(default_factory=list)
+    delete_count: int = 0
+    delete_session_ids: list[str | None] = field(default_factory=list)
+    delete_protocol_versions: list[str | None] = field(default_factory=list)
+    post_methods: list[str | None] = field(default_factory=list)
     pending_initialize: dict[str, Any] | None = None
     duplicate_calls: list[dict[str, Any]] = field(default_factory=list)
     cancelled_call: dict[str, Any] | None = None
@@ -159,9 +170,26 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
             def do_POST(self) -> None:  # noqa: N802
                 length = int(self.headers.get("Content-Length", "0"))
                 message = json.loads(self.rfile.read(length))
+                state.post_methods.append(message.get("method"))
                 if state.mode == "http-error-as-timeout":
                     body = json.dumps({"error": "controlled outage"}).encode()
                     self._send(503, body)
+                    return
+                if state.mode == "initialize-error":
+                    body = json.dumps(
+                        {
+                            "error": {
+                                "code": -32603,
+                                "message": "controlled initialize failure",
+                            },
+                            "id": message.get("id"),
+                            "jsonrpc": "2.0",
+                        }
+                    ).encode()
+                    self._send(200, body)
+                    return
+                if "id" not in message:
+                    self._send(202)
                     return
                 result = (
                     INITIALIZE_RESULT if message.get("method") == "initialize" else {}
@@ -176,6 +204,8 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
 
             def do_GET(self) -> None:  # noqa: N802
                 state.last_event_ids.append(self.headers.get("Last-Event-ID"))
+                state.session_ids.append(self.headers.get("MCP-Session-Id"))
+                state.protocol_versions.append(self.headers.get("MCP-Protocol-Version"))
                 state.get_count += 1
                 cursor = (
                     "cursor-é"
@@ -194,6 +224,11 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                 self._send(200, body, "text/event-stream")
 
             def do_DELETE(self) -> None:  # noqa: N802
+                state.delete_count += 1
+                state.delete_session_ids.append(self.headers.get("MCP-Session-Id"))
+                state.delete_protocol_versions.append(
+                    self.headers.get("MCP-Protocol-Version")
+                )
                 self._send(200)
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -221,6 +256,116 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
             probe.bind((self.host, self.port))
         finally:
             probe.close()
+
+
+async def execute_controlled_http_fault(
+    actions: Sequence[Action],
+    fixture_id: str,
+    timeout: float,
+) -> ExecutionResult:
+    """Run one real HTTP peer while injecting a test-only adapter fault."""
+
+    from mcp_statecheck.execution import (
+        ExecutionProtocolError,
+        execute_http,
+    )
+    from mcp_statecheck.model import ActionKind
+
+    if fixture_id not in {
+        "http-error-as-timeout",
+        "second-sse-resume-token-loss",
+    }:
+        raise ValueError(f"unsupported controlled HTTP fixture: {fixture_id}")
+
+    wire_actions = tuple(actions)
+    if fixture_id == "second-sse-resume-token-loss":
+        resume_count = 0
+        rewritten: list[Action] = []
+        for action in wire_actions:
+            if action.kind is ActionKind.RESUME_STREAM:
+                resume_count += 1
+                if resume_count == 2:
+                    action = replace(action, resume_token="")
+            rewritten.append(action)
+        wire_actions = tuple(rewritten)
+
+    with ControlledHTTPPeer(fixture_id) as peer:
+        result = await execute_http(wire_actions, peer.url, timeout=timeout)
+        events = [dict(event) for event in result.events]
+        if fixture_id == "http-error-as-timeout":
+            transformed = False
+            for index, event in enumerate(events):
+                if event.get("kind") == "http_error" and event.get("status") == 503:
+                    events[index] = {
+                        "fixture_source_kind": "http_error",
+                        "http_method": event.get("http_method"),
+                        "kind": "timeout",
+                        "status": 503,
+                        "target_action_id": event.get("target_action_id"),
+                    }
+                    transformed = True
+            if (
+                any(action.kind is ActionKind.INITIALIZE for action in wire_actions)
+                and not transformed
+            ):
+                raise ExecutionProtocolError(
+                    "controlled HTTP error fixture did not observe status 503"
+                )
+        else:
+            sse_indexes = [
+                index
+                for index, event in enumerate(events)
+                if event.get("kind") == "sse_resume"
+            ]
+            if len(sse_indexes) != len(peer.state.last_event_ids):
+                raise ExecutionProtocolError(
+                    "controlled peer and adapter observed different SSE request counts"
+                )
+            for index, observed in zip(
+                sse_indexes,
+                peer.state.last_event_ids,
+                strict=True,
+            ):
+                events[index]["peer_last_event_id"] = observed
+            for index, session_id, protocol_version in zip(
+                sse_indexes,
+                peer.state.session_ids,
+                peer.state.protocol_versions,
+                strict=True,
+            ):
+                events[index]["peer_session_id"] = session_id
+                events[index]["peer_protocol_version"] = protocol_version
+            if peer.state.session_ids != [peer.state.session_id] * len(sse_indexes):
+                raise ExecutionProtocolError(
+                    "controlled SSE fixture did not preserve its HTTP session"
+                )
+            if any(version != "2025-11-25" for version in peer.state.protocol_versions):
+                raise ExecutionProtocolError(
+                    "controlled SSE fixture lost its protocol version"
+                )
+            if len(sse_indexes) >= 3:
+                if (
+                    peer.state.delete_count != 1
+                    or peer.state.delete_session_ids != [peer.state.session_id]
+                    or peer.state.delete_protocol_versions != ["2025-11-25"]
+                ):
+                    raise ExecutionProtocolError(
+                        "controlled SSE fixture did not delete its HTTP session"
+                    )
+
+    return replace(
+        result,
+        events=tuple(events),
+        cleanup={
+            **result.cleanup,
+            "listener_closed": True,
+            **(
+                {"session_deleted": peer.state.delete_count == 1}
+                if fixture_id == "second-sse-resume-token-loss"
+                else {}
+            ),
+        },
+    )
 
 
 def main() -> int:

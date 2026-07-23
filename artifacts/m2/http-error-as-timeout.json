@@ -1,0 +1,168 @@
+{
+  "adapter": "controlled-wire",
+  "canonical_actions": [
+    {
+      "action_id": "connect",
+      "capabilities": null,
+      "kind": "connect",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "initialize",
+      "capabilities": {},
+      "kind": "initialize",
+      "mcp_request_id": 1,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2025-11-25",
+      "resume_token": null,
+      "sequence": 2,
+      "stream_id": null,
+      "target_action_id": null
+    }
+  ],
+  "cleanup": {
+    "client_closed": true,
+    "listener_closed": true
+  },
+  "failure": {
+    "evidence": {
+      "direction": "server_to_client",
+      "http_method": "POST",
+      "http_status": 503,
+      "oracle": "fixture_http_status",
+      "reported_kind": "timeout",
+      "source_kind": "http_error",
+      "status_class": "5xx",
+      "subject": "client_adapter",
+      "target_action_id": "initialize"
+    },
+    "kind": "differential.http_status_reported_as_timeout",
+    "minimized_reproducer": [
+      {
+        "action_id": "connect",
+        "capabilities": null,
+        "kind": "connect",
+        "mcp_request_id": null,
+        "method": null,
+        "payload": null,
+        "protocol_version": null,
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "initialize",
+        "capabilities": {},
+        "kind": "initialize",
+        "mcp_request_id": 1,
+        "method": null,
+        "payload": null,
+        "protocol_version": "2025-11-25",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      }
+    ],
+    "signature": "mcp-statecheck:v1:7aa9b18ce897c3493f9fdd550fd442f131bf7d8a6e5a8b46a0460cbd248b1ce0",
+    "spec_reference": "https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server",
+    "trigger_action_id": "initialize"
+  },
+  "fixture_id": "http-error-as-timeout",
+  "generation": {
+    "engine": "Hypothesis RuleBasedStateMachine",
+    "settings": {
+      "database": null,
+      "deadline": null,
+      "max_examples": 50,
+      "phases": [
+        "generate",
+        "shrink"
+      ],
+      "report_multiple_bugs": false,
+      "stateful_step_count": 8
+    },
+    "version": "6.156.6"
+  },
+  "normalized_events": [
+    {
+      "fixture_source_kind": "http_error",
+      "http_method": "POST",
+      "kind": "timeout",
+      "sequence": 3,
+      "status": 503,
+      "target_action_id": "initialize"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "replay": {
+    "attempts": 10,
+    "cleanups": [
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      {
+        "client_closed": true,
+        "listener_closed": true
+      }
+    ],
+    "matched": 10,
+    "returncodes": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "signature": "mcp-statecheck:v1:7aa9b18ce897c3493f9fdd550fd442f131bf7d8a6e5a8b46a0460cbd248b1ce0"
+  },
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 20260721,
+  "transport": "streamable-http"
+}

@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass
 
+HTTP_ERROR_FIXTURE_ID = "http-error-as-timeout"
+SSE_RESUME_FIXTURE_ID = "second-sse-resume-token-loss"
+
 
 @dataclass(frozen=True, slots=True)
 class FixtureDefinition:
@@ -13,7 +16,7 @@ class FixtureDefinition:
 
 FIXTURES = (
     FixtureDefinition(
-        "http-error-as-timeout",
+        HTTP_ERROR_FIXTURE_ID,
         "streamable-http",
         "An explicit HTTP 503 must remain distinct from a timeout.",
         ("connect", "initialize"),
@@ -25,10 +28,10 @@ FIXTURES = (
         ("initialize", "initialized", "call-a", "call-b"),
     ),
     FixtureDefinition(
-        "second-sse-resume-token-loss",
+        SSE_RESUME_FIXTURE_ID,
         "streamable-http",
         "The second SSE reconnect must send the newest event ID.",
-        ("initialize", "open-sse", "resume-1", "resume-2"),
+        ("initialize", "initialized", "open-sse", "resume-1", "resume-2"),
     ),
     FixtureDefinition(
         "request-before-initialized",

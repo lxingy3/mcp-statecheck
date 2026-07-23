@@ -145,6 +145,9 @@ def test_second_sse_reconnect_uses_latest_event_id() -> None:
             async with StreamableHTTPTransport(peer.url, timeout=1) as transport:
                 await transport.send(_initialize())
                 transport.set_protocol_version(PROTOCOL_VERSION)
+                await transport.send(
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"}
+                )
                 messages = []
                 for _ in range(3):
                     messages.extend(await transport.resume("server-events"))
@@ -161,6 +164,7 @@ def test_second_sse_reconnect_uses_latest_event_id() -> None:
             "streamable-http",
             [
                 {"action_id": "initialize", "kind": "initialize"},
+                {"action_id": "initialized", "kind": "initialized"},
                 {"action_id": "open-sse", "kind": "open_stream"},
                 {"action_id": "resume-1", "kind": "resume", "cursor": "cursor-1"},
                 {"action_id": "resume-2", "kind": "resume", "cursor": "cursor-2"},
