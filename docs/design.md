@@ -126,8 +126,41 @@ uses a SHOULD requirement, so this remains a fixture-scoped differential
 compatibility failure rather than a universal conformance claim.
 
 The five versioned failures are checked in under `artifacts/m2/`. This closes
-the controlled-fixture M2 gate. Real cross-SDK differential execution remains
-the M3 milestone.
+the controlled-fixture M2 gate.
+
+## M3 implementation status
+
+M3 currently covers the full stdio client half. It runs four pinned SDK clients
+against controlled peers:
+
+- Python `mcp` 1.28.1 and 2.0.0b2 under Python 3.12.13;
+- TypeScript `@modelcontextprotocol/sdk` 1.29.0 and
+  `@modelcontextprotocol/client` 2.0.0-beta.5 under Node.js 24.14.1.
+
+Each runner executes the same valid client sequence against MCP 2025-06-18 and
+2025-11-25: initialize, send the initialized notification, ping, list tools,
+call the `echo` tool, and close. The controlled peer records the method order,
+requested version, negotiated version, and clean exit. All four runners produce
+the same normalized events for each protocol revision.
+
+The Python and TypeScript versions each have separate committed dependency
+lockfiles and environments. The adapter boundary remains the schema v1 JSON
+Lines envelope used elsewhere in the project. Every saved cell records SDK
+client shutdown plus adapter and peer process cleanup. The matrix also forces
+one runner from each language to hang inside a real SDK call, applies the outer
+hard timeout, and verifies by PID that the adapter and peer are gone.
+
+The checked-in traces are under `artifacts/m3/stdio/`. This command recreates
+all eight cells in a temporary directory and compares them byte for byte with
+the saved artifacts:
+
+```console
+uv run python scripts/run_m3_stdio_matrix.py --check
+```
+
+The result is 8/8 stdio client cells and 8/16 cells in the client transport
+matrix. The eight Streamable HTTP client cells are not implemented yet, so M3
+is not complete.
 
 ## v0.1 release gate
 
@@ -138,7 +171,8 @@ or PyPI publication happens until all of these are true:
 - generation, shrinking, and replay work;
 - all five seeded defects shrink to their expected actions and replay ten times
   with one signature;
-- the pinned Python and TypeScript v1/v2 matrix has real results;
+- the pinned Python and TypeScript v1/v2 client matrix has real results over
+  stdio and Streamable HTTP;
 - the quickstart works in a clean environment;
 - wheel and sdist builds pass;
 - secret scanning passes;

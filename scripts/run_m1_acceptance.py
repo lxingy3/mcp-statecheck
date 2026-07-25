@@ -78,7 +78,9 @@ def main() -> int:
         "generated_traces": generated_traces,
     }
     (args.output / "acceptance.json").write_text(
-        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     if returncode:
         sys.stderr.write(stdout)

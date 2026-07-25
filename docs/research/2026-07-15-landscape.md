@@ -1,7 +1,7 @@
-# MCP landscape snapshot, 2026-07-15
+# MCP landscape snapshot, refreshed 2026-07-26
 
 This snapshot records the inputs used for the first implementation baseline.
-Registry and release data were checked again on 2026-07-15 in Asia/Shanghai.
+Registry and release data were checked again on 2026-07-26 in Asia/Shanghai.
 
 ## Protocol
 
@@ -25,13 +25,14 @@ The live GitHub release API and package registries returned:
 
 | Runner | Stable line | v2 line | Status |
 | --- | --- | --- | --- |
-| Python | `mcp==1.28.1` | `mcp==2.0.0b2` | v2 prerelease |
-| TypeScript | `@modelcontextprotocol/sdk@1.29.0` | split packages at `2.0.0-beta.4` | v2 prerelease |
+| Python | `mcp==1.28.1` | `mcp==2.0.0b2` with `mcp-types==2.0.0b2` | v2 prerelease |
+| TypeScript | `@modelcontextprotocol/sdk@1.29.0` | `@modelcontextprotocol/client@2.0.0-beta.5` | v2 prerelease |
 
 The v2 pins name exact prereleases because both projects still describe v2 as
-unstable. TypeScript v2 uses `@modelcontextprotocol/client`,
-`@modelcontextprotocol/server`, and `@modelcontextprotocol/core`; it is not a
-drop-in version of the v1 package.
+unstable. TypeScript v2 uses split client and server packages rather than a
+drop-in version of the v1 SDK package. The current client slice pins only
+`@modelcontextprotocol/client`; the server package is not needed by this
+matrix.
 
 Sources: [Python SDK releases](https://github.com/modelcontextprotocol/python-sdk/releases),
 [Python package](https://pypi.org/project/mcp/),
@@ -51,4 +52,3 @@ useful instead of copying them.
 lockfile checker. Its overlap is limited to subprocess startup, initialization,
 `tools/list`, timeouts, and process exit. Schema change classification is not
 part of `mcp-statecheck` v0.1.
-

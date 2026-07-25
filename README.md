@@ -12,8 +12,9 @@ wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
 > This project is pre-alpha. M0-M2 are complete across all five controlled
-> fixtures. Real cross-SDK runners, reports, the CLI, and the v0.1 release gate
-> are still ahead.
+> fixtures. M3 has real results for all eight stdio client cells. Streamable
+> HTTP client cells, reports, the CLI, and the v0.1 release gate are still
+> ahead.
 
 ## What works today
 
@@ -26,6 +27,7 @@ wire behavior as deterministic, redacted traces.
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
+| M3 stdio clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions, with 8/8 cells checked against saved traces |
 
 ```mermaid
 flowchart LR
@@ -40,7 +42,7 @@ flowchart LR
 ```
 
 The checked-in [M1 acceptance report](artifacts/m1/acceptance.json) records
-Python 3.12.13, 148 passing tests, and all five M1 fixture checks within a
+Python 3.12.13, 150 passing tests, and all five M1 fixture checks within a
 180-second hard deadline. CI runs the locked project on Ubuntu and Windows.
 
 ## Reproduce the M1 baseline
@@ -64,7 +66,7 @@ A successful report currently includes:
   "milestone": "M1",
   "python": "3.12.13",
   "status": "passed",
-  "tests_passed": 148
+  "tests_passed": 150
 }
 ```
 
@@ -132,6 +134,34 @@ captures the actual cursor, session, and protocol headers. Each HTTP candidate
 and replay uses a fresh localhost peer, verifies client and listener cleanup,
 and verifies session deletion when a session was established.
 
+## Reproduce the current M3 slice
+
+The stdio client matrix covers four pinned SDK runners and both released
+protocol revisions in the benchmark. It requires `uv` and Node.js 24.14.1;
+the command installs the exact isolated Python and npm dependencies:
+
+| Runner | SDK | 2025-06-18 | 2025-11-25 |
+| --- | --- | --- | --- |
+| `python-v1` | `mcp 1.28.1` | [trace](artifacts/m3/stdio/python-v1-2025-06-18.json) | [trace](artifacts/m3/stdio/python-v1-2025-11-25.json) |
+| `python-v2` | `mcp 2.0.0b2` | [trace](artifacts/m3/stdio/python-v2-2025-06-18.json) | [trace](artifacts/m3/stdio/python-v2-2025-11-25.json) |
+| `typescript-v1` | `@modelcontextprotocol/sdk 1.29.0` | [trace](artifacts/m3/stdio/typescript-v1-2025-06-18.json) | [trace](artifacts/m3/stdio/typescript-v1-2025-11-25.json) |
+| `typescript-v2` | `@modelcontextprotocol/client 2.0.0-beta.5` | [trace](artifacts/m3/stdio/typescript-v2-2025-06-18.json) | [trace](artifacts/m3/stdio/typescript-v2-2025-11-25.json) |
+
+```console
+$ uv run python scripts/run_m3_stdio_matrix.py --check
+M3 stdio matrix passed: 8/8 real SDK client cells match artifacts
+```
+
+Each runner performs initialization, ping, tool discovery, and one `echo` tool
+call against a controlled peer. For each protocol revision, all four runners
+produce the same normalized events. The saved traces also record clean SDK
+client shutdown and verified reaping of both the adapter and peer processes.
+The check additionally forces one Python and one TypeScript SDK call to hit the
+outer timeout and verifies that neither process tree remains alive.
+
+This is 8/8 stdio cells and 8/16 cells in the client transport matrix.
+Streamable HTTP accounts for the other eight client cells.
+
 ## Project boundaries
 
 The official
@@ -151,7 +181,7 @@ outside the v0.1 scope.
 | M0 | Complete | Reproducible Python 3.12 environment, lockfile, design baseline, and cross-platform CI |
 | M1 | Complete | Canonical model, wire transports, trace recorder, and controlled peers |
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
-| M3 | Planned | Isolated Python and TypeScript v1/v2 SDK runners |
+| M3 | In progress | stdio client matrix complete at 8/8 cells; eight Streamable HTTP client cells remain |
 | M4 | Planned | CLI, JUnit/SARIF/HTML reports, GitHub Action, documentation, and the v0.1 gate |
 
 The source repository is public during development. GitHub Releases and PyPI
@@ -168,6 +198,8 @@ publication remain blocked until the full
 - [M2 duplicate request ID failure](artifacts/m2/duplicate-concurrent-request-id.json)
 - [M2 cancellation correlation failure](artifacts/m2/late-response-after-cancellation.json)
 - [M2 SSE resume failure](artifacts/m2/second-sse-resume-token-loss.json)
+- [M3 stdio client traces](artifacts/m3/stdio/)
+- [M3 benchmark pins](benchmarks/mcp-v2.toml)
 
 ## License
 

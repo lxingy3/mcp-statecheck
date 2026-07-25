@@ -1,0 +1,12 @@
+{
+  "name": "mcp-statecheck-typescript-v2-runner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.14.1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0-beta.5"
+  }
+}

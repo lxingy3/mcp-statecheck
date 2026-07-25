@@ -1,0 +1,169 @@
+{
+  "adapter": "python-v2",
+  "canonical_actions": [
+    {
+      "action_id": "connect",
+      "capabilities": null,
+      "kind": "connect",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "initialize",
+      "capabilities": {},
+      "kind": "initialize",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2025-11-25",
+      "resume_token": null,
+      "sequence": 2,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "initialized",
+      "capabilities": null,
+      "kind": "initialized",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 3,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "ping",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": null,
+      "method": "ping",
+      "payload": {},
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 4,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "list-tools",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": null,
+      "method": "tools/list",
+      "payload": {},
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 5,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "call-echo",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": null,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "text": "hello"
+        },
+        "name": "echo"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 6,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "close",
+      "capabilities": null,
+      "kind": "close",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 7,
+      "stream_id": null,
+      "target_action_id": null
+    }
+  ],
+  "cleanup": {
+    "adapter_reaped": true,
+    "adapter_returncode": 0,
+    "client_closed": true,
+    "peer_clean_exit": true,
+    "peer_reaped": true
+  },
+  "fixture_id": "sdk-client-smoke",
+  "generation": {
+    "engine": "real SDK stdio matrix",
+    "requested_protocol_version": "2025-11-25",
+    "runner_id": "python-v2",
+    "runtime_version": "3.12.13"
+  },
+  "normalized_events": [
+    {
+      "kind": "response",
+      "method": "initialize",
+      "protocol_version": "2025-11-25",
+      "sequence": 8,
+      "server_info": {
+        "name": "controlled-peer",
+        "version": "0.1"
+      },
+      "target_action_id": "initialize"
+    },
+    {
+      "kind": "response",
+      "method": "ping",
+      "sequence": 9,
+      "target_action_id": "ping"
+    },
+    {
+      "kind": "response",
+      "method": "tools/list",
+      "sequence": 10,
+      "target_action_id": "list-tools",
+      "tool_names": [
+        "echo"
+      ]
+    },
+    {
+      "is_error": false,
+      "kind": "response",
+      "method": "tools/call",
+      "sequence": 11,
+      "target_action_id": "call-echo",
+      "text": "hello"
+    },
+    {
+      "initialize_protocol_version": "2025-11-25",
+      "kind": "peer_observation",
+      "method_order": [
+        "initialize",
+        "notifications/initialized",
+        "ping",
+        "tools/list",
+        "tools/call"
+      ],
+      "negotiated_protocol_version": "2025-11-25",
+      "sequence": 12
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "schema_version": 1,
+  "sdk_version": "2.0.0b2",
+  "seed": 0,
+  "transport": "stdio"
+}

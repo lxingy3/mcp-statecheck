@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 import threading
@@ -11,17 +12,24 @@ from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from mcp_statecheck.execution import ExecutionResult
     from mcp_statecheck.model import Action
 
-INITIALIZE_RESULT = {
-    "protocolVersion": "2025-11-25",
-    "capabilities": {"tools": {}},
-    "serverInfo": {"name": "controlled-peer", "version": "0.1"},
-}
+
+def _initialize_result(protocol_version: str) -> dict[str, Any]:
+    return {
+        "protocolVersion": protocol_version,
+        "capabilities": {"tools": {}},
+        "serverInfo": {"name": "controlled-peer", "version": "0.1"},
+    }
+
+
+INITIALIZE_RESULT = _initialize_result("2025-11-25")
+SDK_MODES = {"sdk-hang", "sdk-smoke"}
 
 
 def _result(request_id: object, result: dict[str, Any]) -> dict[str, Any]:
@@ -31,6 +39,7 @@ def _result(request_id: object, result: dict[str, Any]) -> dict[str, Any]:
 @dataclass
 class PeerState:
     mode: str
+    negotiated_protocol_version: str = "2025-11-25"
     session_id: str = "fixture-session-sensitive"
     get_count: int = 0
     last_event_ids: list[str | None] = field(default_factory=list)
@@ -44,22 +53,52 @@ class PeerState:
     duplicate_calls: list[dict[str, Any]] = field(default_factory=list)
     cancelled_call: dict[str, Any] | None = None
     cancellation_received: bool = False
+    stdio_methods: list[str | None] = field(default_factory=list)
+    initialize_protocol_versions: list[str | None] = field(default_factory=list)
 
     def handle_stdio(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         method = message.get("method")
         request_id = message.get("id")
+        if self.mode in SDK_MODES:
+            self.stdio_methods.append(method)
 
         if method == "initialize":
+            if self.mode in SDK_MODES:
+                params = message.get("params")
+                self.initialize_protocol_versions.append(
+                    params.get("protocolVersion") if isinstance(params, dict) else None
+                )
             if self.mode == "request-before-initialized":
                 self.pending_initialize = message
                 return []
-            return [_result(request_id, INITIALIZE_RESULT)]
+            return [
+                _result(
+                    request_id,
+                    _initialize_result(self.negotiated_protocol_version),
+                )
+            ]
 
         if method == "notifications/initialized":
             return []
 
         if method == "tools/list":
-            response = _result(request_id, {"tools": []})
+            tools = (
+                [
+                    {
+                        "name": "echo",
+                        "description": "Return the supplied text.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                            "additionalProperties": False,
+                        },
+                    }
+                ]
+                if self.mode in SDK_MODES
+                else []
+            )
+            response = _result(request_id, {"tools": tools})
             if self.mode == "unknown-response-id":
                 return [_result(999, {}), response]
             if self.mode == "invalid-json-rpc-error":
@@ -69,6 +108,34 @@ class PeerState:
                 self.pending_initialize = None
                 return [response, initialize]
             return [response]
+
+        if method == "tools/call" and self.mode in SDK_MODES:
+            params = message.get("params")
+            arguments = params.get("arguments") if isinstance(params, dict) else None
+            text = arguments.get("text") if isinstance(arguments, dict) else None
+            if (
+                not isinstance(params, dict)
+                or params.get("name") != "echo"
+                or not isinstance(text, str)
+            ):
+                return [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {"code": -32602, "message": "invalid echo arguments"},
+                    }
+                ]
+            if self.mode == "sdk-hang":
+                return []
+            return [
+                _result(
+                    request_id,
+                    {
+                        "content": [{"type": "text", "text": text}],
+                        "isError": False,
+                    },
+                )
+            ]
 
         if method == "tools/call" and self.mode == "duplicate-concurrent-request-id":
             self.duplicate_calls.append(message)
@@ -126,18 +193,64 @@ class PeerState:
         return [_result(request_id, {})] if "id" in message else []
 
 
-def run_stdio(mode: str) -> int:
-    state = PeerState(mode)
-    for raw_line in sys.stdin:
-        try:
+def _write_stdio_report(
+    report: Path | None,
+    state: PeerState,
+    protocol_version: str,
+    *,
+    clean_exit: bool,
+) -> None:
+    if report is None:
+        return
+    report.parent.mkdir(parents=True, exist_ok=True)
+    temporary = report.with_name(f".{report.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "clean_exit": clean_exit,
+                "initialize_protocol_versions": state.initialize_protocol_versions,
+                "methods": state.stdio_methods,
+                "negotiated_protocol_version": protocol_version,
+                "pid": os.getpid(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.replace(temporary, report)
+
+
+def run_stdio(
+    mode: str,
+    *,
+    protocol_version: str = "2025-11-25",
+    report: Path | None = None,
+) -> int:
+    state = PeerState(mode, negotiated_protocol_version=protocol_version)
+    clean_exit = False
+    _write_stdio_report(report, state, protocol_version, clean_exit=False)
+    try:
+        for raw_line in sys.stdin:
             message = json.loads(raw_line)
             replies = state.handle_stdio(message)
-        except Exception as exc:
-            print(f"fixture input error: {exc}", file=sys.stderr, flush=True)
-            return 2
-        for reply in replies:
-            print(json.dumps(reply, separators=(",", ":")), flush=True)
-    return 0
+            _write_stdio_report(report, state, protocol_version, clean_exit=False)
+            for reply in replies:
+                print(json.dumps(reply, separators=(",", ":")), flush=True)
+        clean_exit = True
+        return 0
+    except Exception as exc:
+        print(f"fixture input error: {exc}", file=sys.stderr, flush=True)
+        return 2
+    finally:
+        _write_stdio_report(
+            report,
+            state,
+            protocol_version,
+            clean_exit=clean_exit,
+        )
 
 
 class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
@@ -372,10 +485,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--stdio", action="store_true")
     parser.add_argument("--mode", required=True)
+    parser.add_argument(
+        "--protocol-version",
+        choices=("2025-06-18", "2025-11-25"),
+        default="2025-11-25",
+    )
+    parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     if not args.stdio:
         parser.error("only --stdio is available from the command line")
-    return run_stdio(args.mode)
+    return run_stdio(
+        args.mode,
+        protocol_version=args.protocol_version,
+        report=args.report,
+    )
 
 
 if __name__ == "__main__":

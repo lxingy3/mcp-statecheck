@@ -1,5 +1,5 @@
 schema_version = 1
-verified_at = "2026-07-15T00:00:00+08:00"
+verified_at = "2026-07-26T00:00:00+08:00"
 protocol_versions = ["2025-06-18", "2025-11-25"]
 transports = ["stdio", "streamable-http"]
 
@@ -14,6 +14,7 @@ id = "python-v2"
 runtime = "python"
 package = "mcp"
 version = "2.0.0b2"
+dependencies = ["mcp-types==2.0.0b2"]
 prerelease = true
 
 [[runners]]
@@ -25,10 +26,6 @@ version = "1.29.0"
 [[runners]]
 id = "typescript-v2"
 runtime = "node"
-packages = [
-  "@modelcontextprotocol/client@2.0.0-beta.4",
-  "@modelcontextprotocol/server@2.0.0-beta.4",
-  "@modelcontextprotocol/core@2.0.0-beta.4",
-]
+package = "@modelcontextprotocol/client"
+version = "2.0.0-beta.5"
 prerelease = true
-
