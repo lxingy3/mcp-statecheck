@@ -11,9 +11,37 @@ cancel one, reconnect an SSE stream, or recover from an expired session.
 wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
-> This project is pre-alpha. M0-M3 are complete: all five controlled fixtures
-> and all 16 real SDK client transport cells have checked-in evidence. Reports,
-> the CLI, and the v0.1 release gate are still ahead.
+> This project is pre-alpha. M0-M3 are complete, and the first M4 slice now
+> provides an installable quick-check CLI, deterministic offline reports, a
+> composite Action, and macOS nightly coverage. The installed matrix and replay
+> commands, final release audit, GitHub Release, and PyPI publication remain
+> blocked.
+
+## Quickstart
+
+From a fresh checkout with [uv](https://docs.astral.sh/uv/) installed:
+
+```console
+git clone https://github.com/lxingy3/mcp-statecheck.git
+cd mcp-statecheck
+uv tool install .
+mcp-statecheck check --output artifacts/quickstart.json --junit artifacts/quickstart.xml --sarif artifacts/quickstart.sarif --html artifacts/quickstart.html --stdio -- python tests/fixtures/peer.py --stdio --mode sdk-smoke
+Check passed: wrote artifacts/quickstart.json
+```
+
+The same quick profile can target only a server you explicitly name:
+
+```console
+mcp-statecheck check --stdio -- python server.py
+mcp-statecheck check --url http://127.0.0.1:3000/mcp
+mcp-statecheck check --header-env Authorization=MCP_TOKEN --url https://example.test/mcp
+```
+
+`--header-env HEADER=ENVIRONMENT_VARIABLE` reads the complete header value
+from the environment. The value is never placed in CLI arguments and is
+redacted before traces or reports are stored. The bounded quick profile
+initializes one session, sends `ping`, probes `tools/list` without calling any
+tool, verifies response shapes, and confirms transport cleanup.
 
 ## What works today
 
@@ -24,6 +52,9 @@ wire behavior as deterministic, redacted traces.
 | stdio | JSON Lines subprocess transport with deadlines, bounded stderr, and child cleanup |
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
+| Installed CLI | Explicit-target stdio and Streamable HTTP quick checks with `0`/`1`/`2` exit codes |
+| Reports | Deterministic JSON, JUnit XML, SARIF 2.1.0, and a script-free single-file HTML trace explorer |
+| Automation | A JSON-argv composite Action plus a scheduled macOS run of the full real SDK matrix |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
 | M3 real SDK clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions and both transports, with 16/16 cells checked against saved traces |
@@ -38,6 +69,7 @@ flowchart LR
     E --> F
     F --> G["Hypothesis shrink<br/>(all five controlled failures)"]
     G --> H["Saved-trace reload<br/>and 10-run replay"]
+    F --> I["JSON · JUnit · SARIF · offline HTML"]
 ```
 
 The checked-in [M1 acceptance report](artifacts/m1/acceptance.json) records
@@ -160,6 +192,46 @@ negotiation, session deletion, and listener cleanup. The check also forces one
 Python and one TypeScript SDK call per transport to hit the outer timeout and
 verifies cleanup.
 
+## Reports and CI integration
+
+Saved traces are the single JSON source of truth. Reports validate schema v1,
+redact again at the output boundary, and never contact a network:
+
+```console
+$ mcp-statecheck report artifacts/m2/request-before-initialized.json --json report.json --junit report.xml --sarif report.sarif --html report.html
+Report wrote 4 files: report.json, report.xml, report.sarif, report.html
+```
+
+Because that artifact contains a detected failure, the command writes every
+requested report and exits `1`. Malformed input, an I/O/configuration problem,
+or a saved infrastructure error exits `2`; a passing artifact exits `0`.
+
+The repository-local composite Action accepts a JSON array rather than a shell
+command string:
+
+```yaml
+- uses: lxingy3/mcp-statecheck@main
+  env:
+    MCP_TOKEN: ${{ secrets.MCP_TOKEN }}
+  with:
+    arguments: >-
+      ["check", "--url", "https://example.test/mcp",
+      "--header-env", "Authorization=MCP_TOKEN",
+      "--output", "artifacts/statecheck.json",
+      "--junit", "artifacts/statecheck.xml"]
+```
+
+Until the first release tag exists, pin a reviewed commit instead of `main` in
+security-sensitive workflows.
+
+The clean-package acceptance command builds both distributions, installs them
+outside the source tree, exercises the actual console script against a real
+stdio peer, and parses all four outputs:
+
+```console
+uv run python scripts/run_m4_acceptance.py
+```
+
 ## Project boundaries
 
 The official
@@ -172,6 +244,11 @@ rather than replacing it.
 Schema lockfiles, API compatibility checks, and protocols other than MCP are
 outside the v0.1 scope.
 
+The installed CLI currently exposes the bounded `check` and `report` commands.
+The M2 replay corpus and M3 matrix remain reproducible repository harnesses
+until their controlled peers and runner assets move behind package-owned APIs.
+No `deep`, `matrix`, or `replay` command is registered as a placeholder.
+
 ## Roadmap
 
 | Milestone | Status | Scope |
@@ -180,7 +257,7 @@ outside the v0.1 scope.
 | M1 | Complete | Canonical model, wire transports, trace recorder, and controlled peers |
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
-| M4 | Planned | CLI, JUnit/SARIF/HTML reports, GitHub Action, documentation, and the v0.1 gate |
+| M4 | In progress | Quick-check CLI, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 
 The source repository is public during development. GitHub Releases and PyPI
 publication remain blocked until the full
@@ -198,6 +275,7 @@ publication remain blocked until the full
 - [M2 SSE resume failure](artifacts/m2/second-sse-resume-token-loss.json)
 - [M3 real SDK client traces](artifacts/m3/)
 - [M3 benchmark pins](benchmarks/mcp-v2.toml)
+- [M4 clean-package acceptance](artifacts/m4/acceptance.json)
 
 ## License
 

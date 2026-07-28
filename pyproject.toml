@@ -23,6 +23,9 @@ dependencies = [
   "hypothesis>=6.135,<7",
 ]
 
+[project.scripts]
+mcp-statecheck = "mcp_statecheck.cli:main"
+
 [dependency-groups]
 dev = [
   "pytest>=8.4,<10",

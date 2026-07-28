@@ -182,6 +182,23 @@ def test_common_secret_field_names_are_redacted_by_default() -> None:
     }
 
 
+def test_secret_values_do_not_corrupt_structural_keys_or_enums() -> None:
+    value = redact(
+        {
+            "error": {"message": "error"},
+            "failure": {"kind": "protocol.failure"},
+            "generation": {"outcome": "infrastructure_error"},
+            "note": "prefix-error error xerrory",
+        },
+        secret_values=("error", "failure"),
+    )
+
+    assert value["error"]["message"] == REDACTED
+    assert value["failure"]["kind"] == f"protocol.{REDACTED}"
+    assert value["generation"]["outcome"] == "infrastructure_error"
+    assert value["note"] == f"prefix-{REDACTED} {REDACTED} x{REDACTED}y"
+
+
 def test_known_session_ids_are_removed_from_embedded_and_earlier_text() -> None:
     session_id = "session-secret-value"
     recorder = TraceRecorder(

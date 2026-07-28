@@ -1,0 +1,42 @@
+{
+  "builds": {
+    "sdist": "mcp_statecheck-0.1.0.dev0.tar.gz",
+    "wheel": "mcp_statecheck-0.1.0.dev0-py3-none-any.whl"
+  },
+  "clean_installs": [
+    "sdist",
+    "wheel"
+  ],
+  "console_versions": {
+    "sdist": "mcp-statecheck 0.1.0.dev0",
+    "wheel": "mcp-statecheck 0.1.0.dev0"
+  },
+  "milestone": "M4",
+  "package_version": "0.1.0.dev0",
+  "python": "3.12.13",
+  "pythonpath_cleared": true,
+  "reports": [
+    "html",
+    "json",
+    "junit",
+    "sarif"
+  ],
+  "schema_version": 1,
+  "source_tree_outside_cwd": true,
+  "status": "passed",
+  "stdio": {
+    "fixture": "sdk-smoke",
+    "peer_clean_exit": true,
+    "peer_reaped": true,
+    "protocol_version": "2025-11-25",
+    "status": "passed"
+  },
+  "timeouts_seconds": {
+    "build": 180,
+    "check": 30,
+    "install": 180,
+    "process_probe": 10,
+    "venv": 120,
+    "version": 15
+  }
+}

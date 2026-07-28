@@ -1,0 +1,32 @@
+name: Nightly client matrix
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-client-matrix
+  cancel-in-progress: true
+
+jobs:
+  client-matrix:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.14.1"
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+          python-version: "3.12.13"
+      - name: Check the full real SDK client matrix
+        timeout-minutes: 25
+        run: >-
+          uv run --locked --no-dev python
+          scripts/run_m3_client_matrix.py --check

@@ -162,6 +162,52 @@ uv run python scripts/run_m3_client_matrix.py --check
 
 The result is 16/16 client transport cells. This closes M3.
 
+## M4 implementation status
+
+The first M4 slice exposes two installed commands:
+
+- `check` runs one bounded session smoke profile over an explicitly
+  named stdio command or Streamable HTTP URL. It initializes, sends the
+  initialized notification, pings, probes tool discovery, validates normalized
+  response shapes, writes schema v1 evidence, and confirms cleanup.
+- `report` validates and redacts an existing schema v1 artifact before
+  projecting it to canonical JSON, JUnit XML, SARIF 2.1.0, or a script-free
+  single-file HTML trace explorer.
+
+Both commands use the same `0`/`1`/`2` contract: no detected issue, protocol or
+differential failure, and configuration or infrastructure error. Report
+outputs are written before a saved failure returns `1`. Source and output path
+collisions are rejected so report generation cannot overwrite the only JSON
+evidence. A saved infrastructure error becomes a JUnit error, a failed SARIF
+invocation, an explicit HTML status, and report exit `2`.
+
+The wire executor records valid server notifications while awaiting a client
+response. It answers server-initiated `ping` requests and returns JSON-RPC
+method-not-found for other unadvertised server requests instead of deadlocking
+the target session.
+
+HTTP secrets are referenced as `HEADER=ENVIRONMENT_VARIABLE`. Only the
+environment variable name appears in arguments; the resolved value goes
+directly to the HTTP transport and both recorder/report redaction boundaries.
+The target URL and stdio argv are not persisted because the current artifact
+schema does not yet define a replay-safe target recipe.
+
+SARIF results carry the stable failure signature but do not invent source
+locations for protocol traces. They are suitable as deterministic artifacts;
+repository annotations remain out of scope until the CLI has an explicit,
+validated source mapping.
+
+The root composite Action accepts a JSON string array, validates `list[str]`,
+and calls the same CLI without shell interpolation. Pull request CI covers
+Ubuntu and Windows, including a clean wheel/sdist installation and the local
+Action. A scheduled macOS workflow runs the complete 16-cell real SDK matrix.
+
+Installed `matrix`, `replay`, and `deep` commands are deliberately absent from
+this slice. The current M2/M3 harnesses depend on repository-owned controlled
+peers and runner assets; those must move behind package-owned APIs before the
+commands can work from a wheel. The M2 fault-injection state machines are not a
+safe substitute for testing an arbitrary server.
+
 ## v0.1 release gate
 
 The source repository may be public during development. No v0.1 GitHub Release
@@ -175,6 +221,8 @@ or PyPI publication happens until all of these are true:
   stdio and Streamable HTTP;
 - the quickstart works in a clean environment;
 - wheel and sdist builds pass;
+- the installed CLI and composite Action pass on Linux and Windows;
+- the scheduled macOS full matrix passes;
 - secret scanning passes;
 - JSON, JUnit, SARIF, and offline HTML reports pass tests;
 - no known P0 or P1 defect remains.

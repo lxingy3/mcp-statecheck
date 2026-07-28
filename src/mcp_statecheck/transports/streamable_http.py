@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import codecs
 import json
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from math import isfinite
 from typing import Any
@@ -12,8 +12,11 @@ from typing import Any
 import anyio
 import httpx
 
+from ..model import canonical_json, is_valid_initialize_result
+
 ACCEPT = "application/json, text/event-stream"
 MAX_SSE_RETRY_MS = 2**31 - 1
+type MessageHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -30,11 +33,15 @@ def _reject_nonfinite(value: str) -> Any:
 
 
 def _strict_json_loads(value: str | bytes) -> Any:
-    return json.loads(
+    parsed = json.loads(
         value,
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_nonfinite,
     )
+    try:
+        return canonical_json(parsed, where="HTTP message")
+    except TypeError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 class HTTPTransportError(Exception):
@@ -261,7 +268,11 @@ class StreamableHTTPTransport:
         self.protocol_version = version
 
     async def send(
-        self, message: Mapping[str, Any], *, stream: str = "default"
+        self,
+        message: Mapping[str, Any],
+        *,
+        stream: str = "default",
+        on_message: MessageHandler | None = None,
     ) -> list[dict[str, Any]]:
         self._ensure_open()
         method = message.get("method")
@@ -274,6 +285,13 @@ class StreamableHTTPTransport:
         response_status: int | None = None
         staged_session: str | None = None
         initialize_succeeded = False
+        requested_protocol_version: str | None = None
+        if is_initialize:
+            params = message.get("params")
+            if isinstance(params, Mapping) and isinstance(
+                params.get("protocolVersion"), str
+            ):
+                requested_protocol_version = params["protocolVersion"]
         messages: list[dict[str, Any]]
         headers = self._request_headers(
             include_protocol=not is_initialize, include_session=not is_initialize
@@ -309,11 +327,15 @@ class StreamableHTTPTransport:
                             raise HTTPProtocolError(
                                 "MCP session ID must contain only visible ASCII"
                             )
+                    if is_initialize:
+                        self.session_id = staged_session
+                        self.protocol_version = requested_protocol_version
                     messages = await self._read_response(
                         response,
                         stream,
                         request_id=message.get("id") if is_request else None,
                         expects_response=is_request,
+                        on_message=on_message,
                     )
                     if is_initialize and is_request:
                         initialize_succeeded = self._initialize_succeeded(
@@ -325,14 +347,26 @@ class StreamableHTTPTransport:
             ) from exc
         except httpx.HTTPError as exc:
             raise HTTPTransportError(f"HTTP POST failed: {exc}") from exc
+        finally:
+            if is_initialize and not initialize_succeeded:
+                self.session_id = None
+                self.protocol_version = None
         if initialize_succeeded:
             self.session_id = staged_session
         return messages
 
     async def resume(
-        self, stream: str = "default", *, last_event_id: str | None = None
+        self,
+        stream: str = "default",
+        *,
+        last_event_id: str | None = None,
+        on_message: MessageHandler | None = None,
     ) -> list[dict[str, Any]]:
-        messages = self.iter_messages(stream, last_event_id=last_event_id)
+        messages = self.iter_messages(
+            stream,
+            last_event_id=last_event_id,
+            on_message=on_message,
+        )
         try:
             with anyio.fail_after(self.timeout):
                 try:
@@ -347,7 +381,11 @@ class StreamableHTTPTransport:
             await messages.aclose()
 
     async def iter_messages(
-        self, stream: str = "default", *, last_event_id: str | None = None
+        self,
+        stream: str = "default",
+        *,
+        last_event_id: str | None = None,
+        on_message: MessageHandler | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield messages from one resumable GET SSE connection."""
         self._ensure_open()
@@ -386,6 +424,8 @@ class StreamableHTTPTransport:
                 if content_type != "text/event-stream":
                     raise HTTPProtocolError("GET response is not an SSE stream")
                 async for message in self._iter_sse(response, stream):
+                    if on_message is not None:
+                        await on_message(message)
                     yield message
             except BaseException:
                 if response is not None:
@@ -452,6 +492,7 @@ class StreamableHTTPTransport:
         *,
         request_id: Any,
         expects_response: bool,
+        on_message: MessageHandler | None,
     ) -> list[dict[str, Any]]:
         if not expects_response:
             if await self._read_limited(response):
@@ -461,7 +502,12 @@ class StreamableHTTPTransport:
             response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         )
         if content_type == "text/event-stream":
-            return await self._read_sse(response, stream, request_id)
+            return await self._read_sse(
+                response,
+                stream,
+                request_id,
+                on_message=on_message,
+            )
         if content_type != "application/json":
             raise HTTPProtocolError(
                 f"unsupported response content type: {content_type or 'missing'}"
@@ -475,14 +521,23 @@ class StreamableHTTPTransport:
             raise HTTPProtocolError("response body is not valid JSON") from exc
         if not isinstance(message, dict):
             raise HTTPProtocolError("response body must be a JSON object")
+        if on_message is not None:
+            await on_message(message)
         return [message]
 
     async def _read_sse(
-        self, response: httpx.Response, stream: str, request_id: Any
+        self,
+        response: httpx.Response,
+        stream: str,
+        request_id: Any,
+        *,
+        on_message: MessageHandler | None,
     ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         async for message in self._iter_sse(response, stream):
             messages.append(message)
+            if on_message is not None:
+                await on_message(message)
             if self._is_response_for(message, request_id):
                 break
         return messages
@@ -556,17 +611,7 @@ class StreamableHTTPTransport:
                 if "error" in message:
                     return False
                 result = message["result"]
-                server_info = (
-                    result.get("serverInfo") if isinstance(result, dict) else None
-                )
-                if not (
-                    isinstance(result, dict)
-                    and isinstance(result.get("protocolVersion"), str)
-                    and isinstance(result.get("capabilities"), dict)
-                    and isinstance(server_info, dict)
-                    and isinstance(server_info.get("name"), str)
-                    and isinstance(server_info.get("version"), str)
-                ):
+                if not is_valid_initialize_result(result):
                     raise HTTPProtocolError("initialize result has an invalid shape")
                 return True
         raise HTTPProtocolError("initialize response is missing or has a mismatched ID")

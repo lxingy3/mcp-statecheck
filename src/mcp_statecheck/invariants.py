@@ -106,7 +106,7 @@ def detect_failure(
                     spec_reference=INITIALIZATION_SPEC,
                     trigger_action_id=action.action_id,
                     evidence=evidence,
-                    signature=_signature(EARLY_REQUEST_KIND, evidence),
+                    signature=failure_signature(EARLY_REQUEST_KIND, evidence),
                 )
         if action.kind is ActionKind.INITIALIZE:
             session_active = True
@@ -160,7 +160,7 @@ def detect_failure(
                     spec_reference=DUPLICATE_REQUEST_ID_SPEC,
                     trigger_action_id=action.action_id,
                     evidence=evidence,
-                    signature=_signature(
+                    signature=failure_signature(
                         DUPLICATE_REQUEST_ID_KIND,
                         signature_evidence,
                     ),
@@ -239,7 +239,7 @@ def _detect_http_status_as_timeout(
             spec_reference=HTTP_TRANSPORT_SPEC,
             trigger_action_id=target.action_id,
             evidence=evidence,
-            signature=_signature(HTTP_STATUS_TIMEOUT_KIND, signature_evidence),
+            signature=failure_signature(HTTP_STATUS_TIMEOUT_KIND, signature_evidence),
         )
     return None
 
@@ -378,7 +378,9 @@ def _detect_sse_resume_token_loss(
                 spec_reference=SSE_RESUME_SPEC,
                 trigger_action_id=second_resume.action_id,
                 evidence=evidence,
-                signature=_signature(SSE_RESUME_TOKEN_LOST_KIND, signature_evidence),
+                signature=failure_signature(
+                    SSE_RESUME_TOKEN_LOST_KIND, signature_evidence
+                ),
             )
     return None
 
@@ -473,7 +475,7 @@ def _detect_fixture_canary_failure(
             spec_reference=RESPONSE_CORRELATION_SPEC,
             trigger_action_id=target_action_id,
             evidence=evidence,
-            signature=_signature(
+            signature=failure_signature(
                 WRONG_RESPONSE_CORRELATION_KIND,
                 signature_evidence,
             ),
@@ -502,7 +504,9 @@ def _response_canary(event: Mapping[str, object]) -> str | None:
     return canary if isinstance(canary, str) else None
 
 
-def _signature(kind: str, evidence: Mapping[str, object]) -> str:
+def failure_signature(kind: str, evidence: Mapping[str, object]) -> str:
+    """Return the stable v1 digest for one normalized failure."""
+
     payload = canonical_json(
         {
             "evidence": dict(evidence),

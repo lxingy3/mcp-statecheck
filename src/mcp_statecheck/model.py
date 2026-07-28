@@ -11,11 +11,20 @@ from typing import Self
 type JsonValue = (
     None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 )
+PROTOCOL_VERSIONS = ("2025-06-18", "2025-11-25")
+
+
+def _validate_json_string(value: str, where: str) -> str:
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise TypeError(f"{where} contains an unpaired Unicode surrogate")
+    return value
 
 
 def canonical_json(value: object, *, where: str = "value") -> JsonValue:
     """Return a detached, deterministically ordered JSON value."""
-    if value is None or isinstance(value, (bool, int, str)):
+    if isinstance(value, str):
+        return _validate_json_string(value, where)
+    if value is None or isinstance(value, (bool, int)):
         return value
     if isinstance(value, float):
         if not isfinite(value):
@@ -30,10 +39,26 @@ def canonical_json(value: object, *, where: str = "value") -> JsonValue:
         if not all(isinstance(key, str) for key in value):
             raise TypeError(f"{where} contains a non-string object key")
         return {
-            key: canonical_json(value[key], where=f"{where}.{key}")
+            _validate_json_string(key, f"{where} key"): canonical_json(
+                value[key], where=f"{where}.{key}"
+            )
             for key in sorted(value)
         }
     raise TypeError(f"{where} is not JSON serializable: {type(value).__name__}")
+
+
+def is_valid_initialize_result(value: object) -> bool:
+    """Return whether a value is a supported MCP InitializeResult."""
+    if not isinstance(value, Mapping):
+        return False
+    server_info = value.get("serverInfo")
+    return (
+        value.get("protocolVersion") in PROTOCOL_VERSIONS
+        and isinstance(value.get("capabilities"), Mapping)
+        and isinstance(server_info, Mapping)
+        and isinstance(server_info.get("name"), str)
+        and isinstance(server_info.get("version"), str)
+    )
 
 
 class LifecyclePhase(StrEnum):

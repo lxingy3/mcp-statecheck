@@ -30,6 +30,10 @@ def _initialize_result(protocol_version: str) -> dict[str, Any]:
 
 INITIALIZE_RESULT = _initialize_result("2025-11-25")
 SDK_MODES = {"sdk-hang", "sdk-smoke"}
+OBSERVED_STDIO_MODES = SDK_MODES | {
+    "initialize-error",
+    "initialize-invalid-result",
+}
 
 
 def _result(request_id: object, result: dict[str, Any]) -> dict[str, Any]:
@@ -52,25 +56,47 @@ class PeerState:
     post_accepts: list[str | None] = field(default_factory=list)
     post_session_ids: list[str | None] = field(default_factory=list)
     post_protocol_versions: list[str | None] = field(default_factory=list)
+    post_authorizations: list[str | None] = field(default_factory=list)
     pending_initialize: dict[str, Any] | None = None
     duplicate_calls: list[dict[str, Any]] = field(default_factory=list)
     cancelled_call: dict[str, Any] | None = None
     cancellation_received: bool = False
+    server_ping_responses: list[dict[str, Any]] = field(default_factory=list)
     stdio_methods: list[str | None] = field(default_factory=list)
     initialize_protocol_versions: list[str | None] = field(default_factory=list)
 
     def handle_stdio(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         method = message.get("method")
         request_id = message.get("id")
-        if self.mode in SDK_MODES:
+        if (
+            self.mode == "server-ping-before-response"
+            and method is None
+            and request_id == "server-ping"
+        ):
+            self.server_ping_responses.append(message)
+            return []
+        if self.mode in OBSERVED_STDIO_MODES:
             self.stdio_methods.append(method)
 
         if method == "initialize":
-            if self.mode in SDK_MODES:
+            if self.mode in OBSERVED_STDIO_MODES:
                 params = message.get("params")
                 self.initialize_protocol_versions.append(
                     params.get("protocolVersion") if isinstance(params, dict) else None
                 )
+            if self.mode == "initialize-error":
+                return [
+                    {
+                        "error": {
+                            "code": -32603,
+                            "message": "controlled initialize failure",
+                        },
+                        "id": request_id,
+                        "jsonrpc": "2.0",
+                    }
+                ]
+            if self.mode == "initialize-invalid-result":
+                return [_result(request_id, {})]
             if self.mode == "request-before-initialized":
                 self.pending_initialize = message
                 return []
@@ -191,6 +217,51 @@ class PeerState:
             return []
 
         if method == "ping":
+            if self.mode == "invalid-server-request-id":
+                return [
+                    {
+                        "id": None,
+                        "jsonrpc": "2.0",
+                        "method": "ping",
+                    },
+                    _result(request_id, {}),
+                ]
+            if self.mode == "invalid-notification-params":
+                return [
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/message",
+                        "params": [],
+                    },
+                    _result(request_id, {}),
+                ]
+            if self.mode == "invalid-null-notification-params":
+                return [
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/message",
+                        "params": None,
+                    },
+                    _result(request_id, {}),
+                ]
+            if self.mode == "notification-before-response":
+                return [
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/message",
+                        "params": {"level": "info"},
+                    },
+                    _result(request_id, {}),
+                ]
+            if self.mode == "server-ping-before-response":
+                return [
+                    {
+                        "id": "server-ping",
+                        "jsonrpc": "2.0",
+                        "method": "ping",
+                    },
+                    _result(request_id, {}),
+                ]
             return [_result(request_id, {})]
 
         return [_result(request_id, {})] if "id" in message else []
@@ -207,19 +278,16 @@ def _write_stdio_report(
         return
     report.parent.mkdir(parents=True, exist_ok=True)
     temporary = report.with_name(f".{report.name}.{os.getpid()}.tmp")
+    payload = {
+        "clean_exit": clean_exit,
+        "initialize_protocol_versions": state.initialize_protocol_versions,
+        "methods": state.stdio_methods,
+        "negotiated_protocol_version": protocol_version,
+    }
+    if state.mode == "server-ping-before-response":
+        payload["server_ping_responses"] = len(state.server_ping_responses)
     temporary.write_text(
-        json.dumps(
-            {
-                "clean_exit": clean_exit,
-                "initialize_protocol_versions": state.initialize_protocol_versions,
-                "methods": state.stdio_methods,
-                "negotiated_protocol_version": protocol_version,
-                "pid": os.getpid(),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
+        json.dumps({**payload, "pid": os.getpid()}, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
         newline="\n",
     )
@@ -307,6 +375,7 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                 state.post_protocol_versions.append(
                     self.headers.get("MCP-Protocol-Version")
                 )
+                state.post_authorizations.append(self.headers.get("Authorization"))
                 if state.mode in SDK_MODES:
                     replies = state.handle_stdio(message)
                     if "id" not in message:

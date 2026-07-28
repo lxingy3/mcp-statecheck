@@ -71,6 +71,7 @@ _PUBLIC_PROTOCOL_KEYS = {
     "progresstoken",
     "resumetoken",
 }
+_PUBLIC_OUTCOMES = {"failure", "infrastructure_error", "passed"}
 _SESSION_KEYS = {"httpsessionid", "mcpsessionid", "sessionid"}
 _SESSION_TOKEN_CHARACTERS = frozenset(string.ascii_letters + string.digits + "_-")
 
@@ -173,15 +174,18 @@ class _Redactor:
                 value = "".join(pieces)
         return value
 
+    def _replace_secret_values(self, value: str) -> str:
+        for secret in self._secret_values:
+            value = value.replace(secret, REDACTED)
+        return value
+
     def _redact_text(self, value: str, *, session: bool = False) -> str:
         if not value:
             return value
         if session:
             return self._session_alias(value)
         value = self._replace_known_sessions(value)
-        for secret in self._secret_values:
-            value = value.replace(secret, REDACTED)
-        return value
+        return self._replace_secret_values(value)
 
     def scrub_known_sessions(self, value: JsonValue) -> JsonValue:
         """Remove known session IDs without discovering new aliases."""
@@ -191,10 +195,7 @@ class _Redactor:
         if isinstance(value, list):
             return [self.scrub_known_sessions(item) for item in value]
         if isinstance(value, dict):
-            return {
-                self._replace_known_sessions(key): self.scrub_known_sessions(item)
-                for key, item in value.items()
-            }
+            return {key: self.scrub_known_sessions(item) for key, item in value.items()}
         return value
 
     def _discover_sessions(self, value: object, *, session: bool = False) -> None:
@@ -237,9 +238,15 @@ class _Redactor:
             for key in sorted(value):
                 if not isinstance(key, str):
                     raise TypeError("trace object keys must be strings")
-                output_key = self._redact_text(key)
+                output_key = key
                 if _is_secret_key(key):
                     result[output_key] = REDACTED
+                elif (
+                    key == "outcome"
+                    and isinstance(value[key], str)
+                    and value[key] in _PUBLIC_OUTCOMES
+                ):
+                    result[output_key] = value[key]
                 else:
                     result[output_key] = self._redact(
                         value[key], session=session or _is_session_key(key)

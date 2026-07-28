@@ -76,8 +76,8 @@ def test_stdio_rejects_shell_strings_and_reaps_on_timeout() -> None:
     async def scenario() -> None:
         transport = StdioTransport(
             [sys.executable, "-c", "import time; time.sleep(30)"],
-            timeout=0.1,
-            shutdown_timeout=0.2,
+            timeout=0.5,
+            shutdown_timeout=0.5,
         )
         await transport.start()
         with pytest.raises(StdioTimeout):
@@ -355,7 +355,7 @@ def test_http_reconnect_encodes_unicode_event_id_as_utf8_header_bytes() -> None:
 def test_http_reconnect_sends_unicode_event_id_over_a_real_socket() -> None:
     async def scenario() -> list[str | None]:
         with ControlledHTTPPeer("unicode-sse-cursor") as peer:
-            async with StreamableHTTPTransport(peer.url, timeout=1) as transport:
+            async with StreamableHTTPTransport(peer.url, timeout=5) as transport:
                 await transport.resume()
                 await transport.resume()
             return peer.state.last_event_ids

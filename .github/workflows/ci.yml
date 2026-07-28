@@ -48,4 +48,27 @@ jobs:
       - name: Run M3 real SDK client transport matrix
         timeout-minutes: 20
         run: uv run python scripts/run_m3_client_matrix.py --check
-      - run: uv build
+      - name: Run clean-package M4 acceptance
+        timeout-minutes: 8
+        run: >-
+          uv run python scripts/run_m4_acceptance.py
+          --output "${{ runner.temp }}/m4/acceptance.json"
+      - name: Smoke test the local Action
+        uses: ./
+        env:
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/m4-action-venv
+        with:
+          arguments: >-
+            ["check", "--output", "m4-action-artifact.json", "--stdio", "--",
+            "python", "tests/fixtures/peer.py", "--stdio", "--mode", "sdk-smoke"]
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"

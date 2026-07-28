@@ -1,0 +1,28 @@
+name: mcp-statecheck
+description: Run Model Context Protocol checks and reports
+author: Xiangyu Li
+
+inputs:
+  arguments:
+    description: JSON array of mcp-statecheck CLI arguments
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      with:
+        enable-cache: true
+        python-version: "3.12.13"
+    - name: Run mcp-statecheck
+      shell: bash
+      env:
+        MCP_STATECHECK_ARGUMENTS: ${{ inputs.arguments }}
+      run: |
+        uv run --project "$GITHUB_ACTION_PATH" --locked --no-dev python -c \
+          'from mcp_statecheck.cli import action_main; raise SystemExit(action_main())'
+
+branding:
+  icon: activity
+  color: blue

@@ -7,7 +7,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from . import __version__
-from .model import Action, ActionKind, JsonValue, canonical_json
+from .model import (
+    Action,
+    ActionKind,
+    JsonValue,
+    canonical_json,
+    is_valid_initialize_result,
+)
 from .transports import (
     HTTPStatusError,
     HTTPTimeout,
@@ -47,9 +53,21 @@ async def execute_stdio(
         prepared.append((action, message))
 
     pending: dict[str, list[str]] = {}
+    actions_by_id = {action.action_id: action for action, _ in prepared}
     remaining_response_count = 0
     events: list[dict[str, JsonValue]] = []
     transport = StdioTransport(command, timeout=timeout)
+
+    async def receive_response() -> dict[str, JsonValue]:
+        while True:
+            event = _normalize_inbound(await transport.receive(), pending)
+            events.append(event)
+            if event["kind"] == "server_request":
+                await transport.send(_server_request_response(event))
+                continue
+            if event["kind"] == "response":
+                return event
+
     async with transport:
         for action, message in prepared:
             if action.kind is ActionKind.RESPONSE:
@@ -57,7 +75,7 @@ async def execute_stdio(
                     raise ExecutionProtocolError(
                         "response barrier has no pending request"
                     )
-                event = _normalize_response(await transport.receive(), pending)
+                event = await receive_response()
                 if (
                     action.target_action_id is not None
                     and event["target_action_id"] != action.target_action_id
@@ -65,8 +83,17 @@ async def execute_stdio(
                     raise ExecutionProtocolError(
                         "response barrier received a different request"
                     )
-                events.append(event)
                 remaining_response_count -= 1
+                responded = actions_by_id.get(event["target_action_id"])
+                if (
+                    responded is not None
+                    and responded.kind is ActionKind.INITIALIZE
+                    and (
+                        event["outcome"] == "error"
+                        or not is_valid_initialize_result(event["payload"])
+                    )
+                ):
+                    break
                 continue
             if message is None:
                 raise AssertionError("outbound action requires a wire message")
@@ -76,13 +103,17 @@ async def execute_stdio(
                 remaining_response_count += 1
 
         for _ in range(remaining_response_count):
-            events.append(_normalize_response(await transport.receive(), pending))
+            await receive_response()
 
     return ExecutionResult(tuple(events), transport.returncode, transport.stderr)
 
 
 async def execute_http(
-    actions: Sequence[Action], url: str, *, timeout: float = 5.0
+    actions: Sequence[Action],
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    timeout: float = 5.0,
 ) -> ExecutionResult:
     """Execute canonical actions against one Streamable HTTP endpoint."""
 
@@ -91,6 +122,8 @@ async def execute_http(
         ActionKind.CONNECT,
         ActionKind.INITIALIZE,
         ActionKind.INITIALIZED,
+        ActionKind.REQUEST,
+        ActionKind.RESPONSE,
         ActionKind.OPEN_STREAM,
         ActionKind.RESUME_STREAM,
     }
@@ -108,31 +141,70 @@ async def execute_http(
         action_ids.add(action.action_id)
 
     events: list[dict[str, JsonValue]] = []
-    transport = StreamableHTTPTransport(url, timeout=timeout)
+    available_responses: list[str | None] = []
+    transport = StreamableHTTPTransport(url, headers=headers, timeout=timeout)
     async with transport:
+
+        async def answer_server_message(inbound: dict[str, object]) -> None:
+            if "method" not in inbound:
+                return
+            event = _normalize_inbound(inbound, {})
+            if event["kind"] == "server_request":
+                await transport.send(_server_request_response(event))
+
         for action in actions:
             if action.kind is ActionKind.CONNECT:
                 continue
-            if action.kind in (ActionKind.INITIALIZE, ActionKind.INITIALIZED):
+            if action.kind is ActionKind.RESPONSE:
+                if not available_responses:
+                    raise ExecutionProtocolError(
+                        "response barrier has no completed HTTP request"
+                    )
+                target_action_id = available_responses.pop(0)
+                if (
+                    action.target_action_id is not None
+                    and target_action_id != action.target_action_id
+                ):
+                    raise ExecutionProtocolError(
+                        "response barrier received a different HTTP request"
+                    )
+                continue
+            if action.kind in (
+                ActionKind.INITIALIZE,
+                ActionKind.INITIALIZED,
+                ActionKind.REQUEST,
+            ):
                 message = _wire_message(action)
                 try:
-                    messages = await transport.send(message)
+                    messages = await transport.send(
+                        message,
+                        on_message=answer_server_message,
+                    )
                 except HTTPStatusError as exc:
                     events.append(_http_status_event(action, "POST", exc.status_code))
                     break
                 except HTTPTimeout as exc:
                     events.append(_http_timeout_event(action, "POST", exc.status_code))
                     break
-                if action.kind is ActionKind.INITIALIZE:
+                if action.kind in (ActionKind.INITIALIZE, ActionKind.REQUEST):
                     pending = {_id_key(action.mcp_request_id): [action.action_id]}
-                    normalized = [
-                        _normalize_response(message, pending) for message in messages
-                    ]
+                    normalized = []
+                    for inbound in messages:
+                        event = _normalize_inbound(inbound, pending)
+                        normalized.append(event)
                     events.extend(normalized)
-                    if normalized:
-                        if normalized[-1]["outcome"] != "success":
+                    responses = [
+                        event for event in normalized if event["kind"] == "response"
+                    ]
+                    if pending:
+                        raise ExecutionProtocolError(
+                            "HTTP response is missing or has a mismatched ID"
+                        )
+                    available_responses.append(responses[-1]["target_action_id"])
+                    if action.kind is ActionKind.INITIALIZE and responses:
+                        if responses[-1]["outcome"] != "success":
                             break
-                        payload = normalized[-1]["payload"]
+                        payload = responses[-1]["payload"]
                         if isinstance(payload, Mapping):
                             version = payload.get("protocolVersion")
                             if isinstance(version, str):
@@ -156,6 +228,7 @@ async def execute_http(
                 messages = await transport.resume(
                     action.stream_id,
                     last_event_id=override,
+                    on_message=answer_server_message,
                 )
             except HTTPStatusError as exc:
                 events.append(_http_status_event(action, "GET", exc.status_code))
@@ -249,6 +322,64 @@ def _wire_message(action: Action) -> dict[str, JsonValue]:
     raise ExecutionProtocolError(f"unsupported action kind: {action.kind.value}")
 
 
+def _normalize_inbound(
+    message: dict[str, object], pending: dict[str, list[str]]
+) -> dict[str, JsonValue]:
+    if "method" not in message:
+        return _normalize_response(message, pending)
+    if (
+        message.get("jsonrpc") != "2.0"
+        or not isinstance(message["method"], str)
+        or not message["method"]
+        or "result" in message
+        or "error" in message
+    ):
+        raise ExecutionProtocolError("peer emitted an invalid JSON-RPC message")
+    params = message.get("params")
+    if "params" in message and not isinstance(params, Mapping):
+        raise ExecutionProtocolError(
+            "peer emitted a JSON-RPC message with invalid params"
+        )
+    if "id" in message:
+        request_id = canonical_json(message["id"], where="server request id")
+        if type(request_id) is not int and not isinstance(request_id, str):
+            raise ExecutionProtocolError(
+                "peer emitted a server request with an invalid ID"
+            )
+        method = message["method"]
+        return {
+            "kind": "server_request",
+            "mcp_request_id": request_id,
+            "method": method,
+            "payload": canonical_json(params, where="server request params"),
+            "response_outcome": ("success" if method == "ping" else "method_not_found"),
+            "target_action_id": None,
+        }
+    return {
+        "kind": "notification",
+        "method": message["method"],
+        "payload": canonical_json(params, where="notification.params"),
+        "target_action_id": None,
+    }
+
+
+def _server_request_response(
+    event: Mapping[str, JsonValue],
+) -> dict[str, JsonValue]:
+    message: dict[str, JsonValue] = {
+        "id": canonical_json(event["mcp_request_id"]),
+        "jsonrpc": "2.0",
+    }
+    if event["method"] == "ping":
+        message["result"] = {}
+    else:
+        message["error"] = {
+            "code": -32601,
+            "message": "Method not found",
+        }
+    return message
+
+
 def _normalize_response(
     message: dict[str, object], pending: dict[str, list[str]]
 ) -> dict[str, JsonValue]:
@@ -272,6 +403,8 @@ def _normalize_response(
             )
 
     request_id = canonical_json(message["id"], where="response.id")
+    if type(request_id) is not int and not isinstance(request_id, str):
+        raise ExecutionProtocolError("peer emitted a response with an invalid ID")
     candidates = pending.get(_id_key(request_id), [])
     if not candidates:
         raise ExecutionProtocolError("response id does not match a pending request")

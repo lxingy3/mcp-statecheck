@@ -75,7 +75,20 @@ def test_initialize_commits_session_only_after_matching_result() -> None:
     run(scenario)
 
 
-def test_initialize_rejects_result_without_initialize_result_fields() -> None:
+@pytest.mark.parametrize(
+    "result",
+    (
+        {},
+        {
+            "protocolVersion": "2099-01-01",
+            "capabilities": {},
+            "serverInfo": {"name": "future", "version": "1"},
+        },
+    ),
+)
+def test_initialize_rejects_invalid_or_unsupported_result(
+    result: dict[str, Any],
+) -> None:
     async def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -83,7 +96,7 @@ def test_initialize_rejects_result_without_initialize_result_fields() -> None:
                 "Content-Type": "application/json",
                 "MCP-Session-Id": "not-committed",
             },
-            json={"jsonrpc": "2.0", "id": 1, "result": {}},
+            json={"jsonrpc": "2.0", "id": 1, "result": result},
         )
 
     async def scenario() -> None:
@@ -205,6 +218,7 @@ def test_accepted_notification_requires_empty_body() -> None:
         b'{"jsonrpc":"2.0","id":1,"id":1,"result":{}}',
         b'{"jsonrpc":"2.0","id":1,"result":{"value":NaN}}',
         b'{"jsonrpc":"2.0","id":1,"result":{"value":Infinity}}',
+        b'{"jsonrpc":"2.0","id":1,"result":{"text":"\\ud800"}}',
     ],
 )
 def test_json_response_rejects_nonstandard_json(body: bytes) -> None:

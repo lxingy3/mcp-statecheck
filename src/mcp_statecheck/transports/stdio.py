@@ -13,6 +13,8 @@ import anyio
 from anyio.abc import ByteReceiveStream, Process, TaskGroup
 from anyio.streams.buffered import BufferedByteReceiveStream
 
+from ..model import canonical_json
+
 
 class StdioError(Exception):
     """Base error for the stdio transport."""
@@ -105,21 +107,35 @@ class StdioTransport:
         if self._closed:
             raise StdioError("transport is closed")
 
+        process: Process | None = None
         try:
             with anyio.fail_after(self.timeout):
-                process = await anyio.open_process(
-                    self.command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    cwd=self.cwd,
-                    env=self.env,
-                )
-        except TimeoutError as exc:
-            raise StdioTimeout("starting the child timed out") from exc
-        except OSError as exc:
-            raise StdioError(f"could not start child: {exc}") from exc
+                # Cancelling Windows process creation can orphan the new child.
+                # Shield the unsafe edge, then deliver the deadline immediately.
+                with anyio.CancelScope(shield=True):
+                    process = await anyio.open_process(
+                        self.command,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        cwd=self.cwd,
+                        env=self.env,
+                    )
+                await anyio.lowlevel.checkpoint()
+        except BaseException as exc:
+            if process is not None:
+                self._process = process
+                assert process.stdout is not None
+                self._stdout = BufferedByteReceiveStream(process.stdout)
+                with anyio.CancelScope(shield=True):
+                    await self.close()
+            if isinstance(exc, TimeoutError):
+                raise StdioTimeout("starting the child timed out") from exc
+            if isinstance(exc, OSError):
+                raise StdioError(f"could not start child: {exc}") from exc
+            raise
 
+        assert process is not None
         self._process = process
         assert process.stdout is not None and process.stderr is not None
         self._stdout = BufferedByteReceiveStream(process.stdout)
@@ -190,7 +206,14 @@ class StdioTransport:
         if not isinstance(message, dict):
             await self.close()
             raise StdioProtocolError("child message must be a JSON object")
-        return message
+        try:
+            normalized = canonical_json(message, where="child message")
+        except TypeError as exc:
+            await self.close()
+            raise StdioProtocolError(f"child emitted invalid JSON: {exc}") from exc
+        if not isinstance(normalized, dict):
+            raise AssertionError("JSON object normalization changed its type")
+        return normalized
 
     async def close(self) -> None:
         if self._closed:

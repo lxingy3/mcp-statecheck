@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 import anyio
+import httpx
 import pytest
 
+import mcp_statecheck.execution as execution_module
 from mcp_statecheck.execution import (
     ExecutionProtocolError,
     execute_http,
     execute_stdio,
 )
 from mcp_statecheck.model import Action, ActionKind
+from mcp_statecheck.transports.streamable_http import StreamableHTTPTransport
 from tests.fixtures.peer import (
     ControlledHTTPPeer,
     execute_controlled_http_fault,
@@ -324,6 +328,346 @@ def _http_actions() -> tuple[Action, ...]:
             resume_token="cursor-2",
         ),
     )
+
+
+def _smoke_actions() -> tuple[Action, ...]:
+    return (
+        Action("connect", ActionKind.CONNECT),
+        Action(
+            "initialize",
+            ActionKind.INITIALIZE,
+            mcp_request_id=1,
+            protocol_version="2025-11-25",
+            capabilities={},
+        ),
+        Action(
+            "initialize-response",
+            ActionKind.RESPONSE,
+            target_action_id="initialize",
+        ),
+        Action("initialized", ActionKind.INITIALIZED),
+        Action(
+            "ping",
+            ActionKind.REQUEST,
+            mcp_request_id=2,
+            method="ping",
+            payload={},
+        ),
+        Action("ping-response", ActionKind.RESPONSE, target_action_id="ping"),
+        Action(
+            "tools-list",
+            ActionKind.REQUEST,
+            mcp_request_id=3,
+            method="tools/list",
+            payload={},
+        ),
+        Action(
+            "tools-list-response",
+            ActionKind.RESPONSE,
+            target_action_id="tools-list",
+        ),
+    )
+
+
+def test_stdio_execution_records_notifications_before_the_target_response() -> None:
+    async def scenario() -> None:
+        result = await execute_stdio(
+            _smoke_actions()[1:6],
+            (
+                sys.executable,
+                str(PEER),
+                "--stdio",
+                "--mode",
+                "notification-before-response",
+            ),
+            timeout=5,
+        )
+
+        assert [event["kind"] for event in result.events] == [
+            "response",
+            "notification",
+            "response",
+        ]
+        assert result.events[1]["method"] == "notifications/message"
+        assert result.events[2]["target_action_id"] == "ping"
+
+    anyio.run(scenario)
+
+
+def test_stdio_execution_answers_a_server_ping(
+    tmp_path: Path,
+) -> None:
+    report = tmp_path / "peer.json"
+
+    async def scenario() -> None:
+        result = await execute_stdio(
+            _smoke_actions()[1:6],
+            (
+                sys.executable,
+                str(PEER),
+                "--stdio",
+                "--mode",
+                "server-ping-before-response",
+                "--report",
+                str(report),
+            ),
+            timeout=5,
+        )
+
+        assert [event["kind"] for event in result.events] == [
+            "response",
+            "server_request",
+            "response",
+        ]
+        assert result.events[1]["method"] == "ping"
+        assert result.events[1]["response_outcome"] == "success"
+
+    anyio.run(scenario)
+    assert json.loads(report.read_text())["server_ping_responses"] == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    (
+        ("invalid-server-request-id", "invalid ID"),
+        ("invalid-notification-params", "invalid params"),
+        ("invalid-null-notification-params", "invalid params"),
+    ),
+)
+def test_stdio_execution_rejects_invalid_server_messages(
+    mode: str,
+    message: str,
+) -> None:
+    async def scenario() -> None:
+        with pytest.raises(ExecutionProtocolError, match=message):
+            await execute_stdio(
+                _smoke_actions()[1:6],
+                (
+                    sys.executable,
+                    str(PEER),
+                    "--stdio",
+                    "--mode",
+                    mode,
+                ),
+                timeout=5,
+            )
+
+    anyio.run(scenario)
+
+
+def test_stdio_execution_stops_after_initialize_error(
+    tmp_path: Path,
+) -> None:
+    report = tmp_path / "peer.json"
+
+    async def scenario() -> None:
+        result = await execute_stdio(
+            _smoke_actions()[1:],
+            (
+                sys.executable,
+                str(PEER),
+                "--stdio",
+                "--mode",
+                "initialize-error",
+                "--report",
+                str(report),
+            ),
+            timeout=5,
+        )
+
+        assert len(result.events) == 1
+        assert result.events[0]["outcome"] == "error"
+        assert result.events[0]["target_action_id"] == "initialize"
+
+    anyio.run(scenario)
+    assert json.loads(report.read_text())["methods"] == ["initialize"]
+
+
+def test_stdio_execution_stops_after_invalid_initialize_result(
+    tmp_path: Path,
+) -> None:
+    report = tmp_path / "peer.json"
+
+    async def scenario() -> None:
+        result = await execute_stdio(
+            _smoke_actions()[1:],
+            (
+                sys.executable,
+                str(PEER),
+                "--stdio",
+                "--mode",
+                "initialize-invalid-result",
+                "--report",
+                str(report),
+            ),
+            timeout=5,
+        )
+
+        assert len(result.events) == 1
+        assert result.events[0]["outcome"] == "success"
+        assert result.events[0]["payload"] == {}
+        assert result.events[0]["target_action_id"] == "initialize"
+
+    anyio.run(scenario)
+    assert json.loads(report.read_text())["methods"] == ["initialize"]
+
+
+def test_http_execution_supports_requests_barriers_and_headers() -> None:
+    async def scenario() -> None:
+        with ControlledHTTPPeer("sdk-smoke") as peer:
+            result = await execute_http(
+                _smoke_actions(),
+                peer.url,
+                headers={"Authorization": "Bearer test-token"},
+                timeout=5,
+            )
+            assert peer.state.post_methods == [
+                "initialize",
+                "notifications/initialized",
+                "ping",
+                "tools/list",
+            ]
+            assert peer.state.post_authorizations == ["Bearer test-token"] * 4
+
+        assert [event["target_action_id"] for event in result.events] == [
+            "initialize",
+            "ping",
+            "tools-list",
+        ]
+        assert result.events[-1]["payload"]["tools"][0]["name"] == "echo"
+        assert result.cleanup == {"client_closed": True}
+
+    anyio.run(scenario)
+
+
+def test_http_execution_answers_server_request_before_sse_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        response_received = anyio.Event()
+        requests: list[tuple[str, dict[str, object] | None]] = []
+
+        class InitializeStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield (
+                    b'data: {"jsonrpc":"2.0","id":"server-ping","method":"ping"}\n\n'
+                )
+                with anyio.fail_after(1):
+                    await response_received.wait()
+                yield (
+                    b'data: {"jsonrpc":"2.0","id":1,"result":'
+                    b'{"protocolVersion":"2025-11-25","capabilities":{},'
+                    b'"serverInfo":{"name":"fixture","version":"1"}}}\n\n'
+                )
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            body = (
+                json.loads(await request.aread()) if request.method == "POST" else None
+            )
+            requests.append((request.method, body))
+            if body and body.get("method") == "initialize":
+                return httpx.Response(
+                    200,
+                    headers={
+                        "Content-Type": "text/event-stream",
+                        "MCP-Session-Id": "session-1",
+                    },
+                    stream=InitializeStream(),
+                )
+            if body and body.get("id") == "server-ping":
+                assert body == {
+                    "id": "server-ping",
+                    "jsonrpc": "2.0",
+                    "result": {},
+                }
+                assert request.headers["MCP-Session-Id"] == "session-1"
+                assert request.headers["MCP-Protocol-Version"] == "2025-11-25"
+                response_received.set()
+                return httpx.Response(202)
+            assert request.method == "DELETE"
+            return httpx.Response(200)
+
+        transport = StreamableHTTPTransport(
+            "https://example.test/mcp",
+            timeout=2,
+            transport=httpx.MockTransport(handler),
+        )
+        monkeypatch.setattr(
+            execution_module,
+            "StreamableHTTPTransport",
+            lambda *_args, **_kwargs: transport,
+        )
+
+        result = await execution_module.execute_http(
+            _smoke_actions()[:3],
+            "https://example.test/mcp",
+            timeout=2,
+        )
+
+        assert [event["kind"] for event in result.events] == [
+            "server_request",
+            "response",
+        ]
+        assert [method for method, _ in requests] == ["POST", "POST", "DELETE"]
+
+    anyio.run(scenario)
+
+
+def test_http_execution_answers_server_request_on_get_sse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        response_received = anyio.Event()
+        request_methods: list[str] = []
+
+        class ServerRequestStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield (
+                    b'data: {"jsonrpc":"2.0","id":"server-ping","method":"ping"}\n\n'
+                )
+                with anyio.fail_after(1):
+                    await response_received.wait()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            request_methods.append(request.method)
+            if request.method == "GET":
+                return httpx.Response(
+                    200,
+                    headers={"Content-Type": "text/event-stream"},
+                    stream=ServerRequestStream(),
+                )
+            body = json.loads(await request.aread())
+            assert body == {
+                "id": "server-ping",
+                "jsonrpc": "2.0",
+                "result": {},
+            }
+            assert request.headers["MCP-Protocol-Version"] == "2025-11-25"
+            response_received.set()
+            return httpx.Response(202)
+
+        transport = StreamableHTTPTransport(
+            "https://example.test/mcp",
+            timeout=2,
+            protocol_version="2025-11-25",
+            transport=httpx.MockTransport(handler),
+        )
+        monkeypatch.setattr(
+            execution_module,
+            "StreamableHTTPTransport",
+            lambda *_args, **_kwargs: transport,
+        )
+
+        result = await execution_module.execute_http(
+            (Action("open", ActionKind.OPEN_STREAM, stream_id="events"),),
+            "https://example.test/mcp",
+            timeout=2,
+        )
+
+        assert result.events[0]["payload"]["method"] == "ping"
+        assert request_methods == ["GET", "POST"]
+
+    anyio.run(scenario)
 
 
 def test_http_execution_uses_canonical_resume_tokens() -> None:
