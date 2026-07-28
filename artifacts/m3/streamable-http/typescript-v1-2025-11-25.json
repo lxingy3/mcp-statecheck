@@ -102,8 +102,8 @@
     "adapter_reaped": true,
     "adapter_returncode": 0,
     "client_closed": true,
-    "peer_clean_exit": true,
-    "peer_reaped": true
+    "listener_closed": true,
+    "session_deleted": true
   },
   "fixture_id": "sdk-client-smoke",
   "generation": {
@@ -158,12 +158,16 @@
         "tools/call"
       ],
       "negotiated_protocol_version": "2025-11-25",
-      "sequence": 12
+      "post_accept_headers_valid": true,
+      "protocol_headers_preserved": true,
+      "sequence": 12,
+      "session_deleted": true,
+      "session_preserved": true
     }
   ],
   "protocol_version": "2025-11-25",
   "schema_version": 1,
   "sdk_version": "1.30.0",
   "seed": 0,
-  "transport": "stdio"
+  "transport": "streamable-http"
 }

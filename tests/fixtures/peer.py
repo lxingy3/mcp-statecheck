@@ -49,6 +49,9 @@ class PeerState:
     delete_session_ids: list[str | None] = field(default_factory=list)
     delete_protocol_versions: list[str | None] = field(default_factory=list)
     post_methods: list[str | None] = field(default_factory=list)
+    post_accepts: list[str | None] = field(default_factory=list)
+    post_session_ids: list[str | None] = field(default_factory=list)
+    post_protocol_versions: list[str | None] = field(default_factory=list)
     pending_initialize: dict[str, Any] | None = None
     duplicate_calls: list[dict[str, Any]] = field(default_factory=list)
     cancelled_call: dict[str, Any] | None = None
@@ -254,9 +257,18 @@ def run_stdio(
 
 
 class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
-    def __init__(self, mode: str) -> None:
-        self.state = PeerState(mode)
+    def __init__(
+        self,
+        mode: str,
+        protocol_version: str = "2025-11-25",
+    ) -> None:
+        self.state = PeerState(
+            mode,
+            negotiated_protocol_version=protocol_version,
+        )
         state = self.state
+        hang_release = threading.Event()
+        self._hang_release = hang_release
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.0"
@@ -281,9 +293,38 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                     self.wfile.write(body)
 
             def do_POST(self) -> None:  # noqa: N802
+                if state.mode in SDK_MODES and (
+                    self.path != "/mcp"
+                    or self.headers.get_content_type() != "application/json"
+                ):
+                    self._send(415)
+                    return
                 length = int(self.headers.get("Content-Length", "0"))
                 message = json.loads(self.rfile.read(length))
                 state.post_methods.append(message.get("method"))
+                state.post_accepts.append(self.headers.get("Accept"))
+                state.post_session_ids.append(self.headers.get("MCP-Session-Id"))
+                state.post_protocol_versions.append(
+                    self.headers.get("MCP-Protocol-Version")
+                )
+                if state.mode in SDK_MODES:
+                    replies = state.handle_stdio(message)
+                    if "id" not in message:
+                        self._send(202)
+                        return
+                    if not replies:
+                        hang_release.wait(timeout=30)
+                        return
+                    if len(replies) != 1:
+                        raise RuntimeError("SDK HTTP mode returned multiple replies")
+                    body = json.dumps(replies[0]).encode()
+                    headers = (
+                        {"MCP-Session-Id": state.session_id}
+                        if message.get("method") == "initialize"
+                        else {}
+                    )
+                    self._send(200, body, headers=headers)
+                    return
                 if state.mode == "http-error-as-timeout":
                     body = json.dumps({"error": "controlled outage"}).encode()
                     self._send(503, body)
@@ -316,10 +357,16 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                 self._send(200, body, headers=headers)
 
             def do_GET(self) -> None:  # noqa: N802
+                if state.mode in SDK_MODES and self.path != "/mcp":
+                    self._send(404)
+                    return
                 state.last_event_ids.append(self.headers.get("Last-Event-ID"))
                 state.session_ids.append(self.headers.get("MCP-Session-Id"))
                 state.protocol_versions.append(self.headers.get("MCP-Protocol-Version"))
                 state.get_count += 1
+                if state.mode in SDK_MODES:
+                    self._send(405)
+                    return
                 cursor = (
                     "cursor-é"
                     if state.mode == "unicode-sse-cursor" and state.get_count == 1
@@ -337,6 +384,9 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                 self._send(200, body, "text/event-stream")
 
             def do_DELETE(self) -> None:  # noqa: N802
+                if state.mode in SDK_MODES and self.path != "/mcp":
+                    self._send(404)
+                    return
                 state.delete_count += 1
                 state.delete_session_ids.append(self.headers.get("MCP-Session-Id"))
                 state.delete_protocol_versions.append(
@@ -355,20 +405,20 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
         return self
 
     def __exit__(self, *_: object) -> None:
+        self._hang_release.set()
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
         if self._thread.is_alive():
             raise RuntimeError("fixture HTTP thread did not stop")
-        probe = socket.socket()
+        if self._server.socket.fileno() != -1:
+            raise RuntimeError("fixture HTTP server socket did not close")
         try:
-            # Linux keeps recently closed connections in TIME_WAIT. Matching
-            # the server's reuse policy distinguishes that state from a live
-            # listener while still permitting an immediate bind check.
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            probe.bind((self.host, self.port))
-        finally:
-            probe.close()
+            probe = socket.create_connection((self.host, self.port), timeout=0.5)
+        except OSError:
+            return
+        probe.close()
+        raise RuntimeError("fixture HTTP listener still accepts connections")
 
 
 async def execute_controlled_http_fault(

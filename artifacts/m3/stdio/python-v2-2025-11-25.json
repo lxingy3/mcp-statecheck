@@ -107,7 +107,7 @@
   },
   "fixture_id": "sdk-client-smoke",
   "generation": {
-    "engine": "real SDK stdio matrix",
+    "engine": "real SDK client transport matrix",
     "requested_protocol_version": "2025-11-25",
     "runner_id": "python-v2",
     "runtime_version": "3.12.13"
@@ -163,7 +163,7 @@
   ],
   "protocol_version": "2025-11-25",
   "schema_version": 1,
-  "sdk_version": "2.0.0b2",
+  "sdk_version": "2.0.0rc1",
   "seed": 0,
   "transport": "stdio"
 }

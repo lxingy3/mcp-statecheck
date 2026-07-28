@@ -45,7 +45,7 @@ jobs:
       - name: Run M2 SSE resume slice
         timeout-minutes: 4
         run: uv run python scripts/run_m2_slice.py --fixture second-sse-resume-token-loss --output "${{ runner.temp }}/m2/second-sse-resume-token-loss.json"
-      - name: Run M3 real SDK stdio matrix
-        timeout-minutes: 15
-        run: uv run python scripts/run_m3_stdio_matrix.py --check
+      - name: Run M3 real SDK client transport matrix
+        timeout-minutes: 20
+        run: uv run python scripts/run_m3_client_matrix.py --check
       - run: uv build

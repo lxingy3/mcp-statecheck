@@ -1,4 +1,4 @@
-// Isolated TypeScript SDK client runner for the M3 stdio matrix.
+// Isolated TypeScript SDK client runner for the M3 transport matrix.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -35,17 +35,33 @@ function parseCommand(line) {
   const payload = envelope.payload;
   fail(payload && typeof payload === "object" && !Array.isArray(payload), "payload must be an object");
   fail(
-    Object.keys(payload).sort().join(",") === "actions,peer_command,runner_id,sdk_version",
+    Object.keys(payload).sort().join(",") === "actions,runner_id,sdk_version,target,transport",
     "adapter payload fields do not match schema v1",
   );
   fail(["typescript-v1", "typescript-v2"].includes(payload.runner_id), "unsupported TypeScript runner");
   fail(typeof payload.sdk_version === "string" && payload.sdk_version, "invalid sdk_version");
-  fail(
-    Array.isArray(payload.peer_command) &&
-      payload.peer_command.length > 0 &&
-      payload.peer_command.every((part) => typeof part === "string" && part),
-    "peer_command must be a non-empty string array",
-  );
+  fail(["stdio", "streamable-http"].includes(payload.transport), "unsupported transport");
+  if (payload.transport === "stdio") {
+    fail(
+      Array.isArray(payload.target) &&
+        payload.target.length > 0 &&
+        payload.target.every((part) => typeof part === "string" && part),
+      "stdio target must be a non-empty string array",
+    );
+  } else {
+    fail(typeof payload.target === "string", "Streamable HTTP target must be a string");
+    const target = new URL(payload.target);
+    fail(
+      target.protocol === "http:" &&
+        target.hostname === "127.0.0.1" &&
+        target.pathname === "/mcp" &&
+        target.username === "" &&
+        target.password === "" &&
+        target.search === "" &&
+        target.hash === "",
+      "Streamable HTTP target must be a loopback /mcp URL",
+    );
+  }
   fail(Array.isArray(payload.actions) && payload.actions.length === expectedActions.length, "unsupported action count");
   payload.actions.forEach((action, index) => {
     fail(action && typeof action === "object" && !Array.isArray(action), "action must be an object");
@@ -94,20 +110,34 @@ async function main() {
   const actualSdkVersion = JSON.parse(readFileSync(packagePath, "utf8")).version;
   fail(actualSdkVersion === payload.sdk_version, `loaded ${packageName} ${actualSdkVersion}, expected ${payload.sdk_version}`);
 
-  const { Client } = requireFromEnvironment(
+  const clientModule = requireFromEnvironment(
     isV1 ? "@modelcontextprotocol/sdk/client/index.js" : "@modelcontextprotocol/client",
   );
-  const { StdioClientTransport } = requireFromEnvironment(
-    isV1 ? "@modelcontextprotocol/sdk/client/stdio.js" : "@modelcontextprotocol/client/stdio",
-  );
+  const { Client } = clientModule;
   const client = new Client(
     { name: "mcp-statecheck", version: "0.1.0-dev" },
-    { capabilities: {} },
+    isV1
+      ? { capabilities: {} }
+      : {
+          capabilities: {},
+          versionNegotiation: { mode: "legacy" },
+        },
   );
-  const transport = new StdioClientTransport({
-    command: payload.peer_command[0],
-    args: payload.peer_command.slice(1),
-  });
+  let transport;
+  if (payload.transport === "stdio") {
+    const { StdioClientTransport } = requireFromEnvironment(
+      isV1 ? "@modelcontextprotocol/sdk/client/stdio.js" : "@modelcontextprotocol/client/stdio",
+    );
+    transport = new StdioClientTransport({
+      command: payload.target[0],
+      args: payload.target.slice(1),
+    });
+  } else {
+    const { StreamableHTTPClientTransport } = isV1
+      ? requireFromEnvironment("@modelcontextprotocol/sdk/client/streamableHttp.js")
+      : clientModule;
+    transport = new StreamableHTTPClientTransport(new URL(payload.target));
+  }
   let negotiatedProtocolVersion;
   const setProtocolVersion = transport.setProtocolVersion?.bind(transport);
   transport.setProtocolVersion = (protocolVersion) => {
@@ -156,7 +186,11 @@ async function main() {
         .join("\n"),
     });
   } finally {
-    await client.close();
+    try {
+      if (payload.transport === "streamable-http") await transport.terminateSession();
+    } finally {
+      await client.close();
+    }
   }
 
   const response = {

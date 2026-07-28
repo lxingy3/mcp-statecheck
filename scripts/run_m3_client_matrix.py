@@ -1,4 +1,4 @@
-"""Run the real Python/TypeScript SDK client matrix over stdio."""
+"""Run the real Python/TypeScript SDK client transport matrix."""
 
 from __future__ import annotations
 
@@ -45,11 +45,12 @@ TYPESCRIPT_ENVIRONMENTS = {
     / runner_id.removeprefix("typescript-")
     for runner_id in ("typescript-v1", "typescript-v2")
 }
-DEFAULT_OUTPUT = ROOT / "artifacts" / "m3" / "stdio"
+DEFAULT_OUTPUT = ROOT / "artifacts" / "m3"
 REQUESTED_PROTOCOL_VERSION = "2025-11-25"
 NODE_VERSION = "24.14.1"
 RUNNER_IDS = ("python-v1", "python-v2", "typescript-v1", "typescript-v2")
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-11-25")
+TRANSPORTS = ("stdio", "streamable-http")
 PEER_METHODS = (
     "initialize",
     "notifications/initialized",
@@ -78,6 +79,14 @@ ACTIONS = (
 )
 
 
+def _controlled_http_peer(mode: str, protocol_version: str):
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.fixtures.peer import ControlledHTTPPeer
+
+    return ControlledHTTPPeer(mode, protocol_version=protocol_version)
+
+
 def _load_runners() -> dict[str, dict[str, object]]:
     with CONFIG.open("rb") as handle:
         config = tomllib.load(handle)
@@ -85,6 +94,8 @@ def _load_runners() -> dict[str, dict[str, object]]:
         raise ValueError("unsupported benchmark schema")
     if tuple(config.get("protocol_versions", ())) != PROTOCOL_VERSIONS:
         raise ValueError("benchmark protocol matrix does not match M3")
+    if tuple(config.get("transports", ())) != TRANSPORTS:
+        raise ValueError("benchmark transport matrix does not match M3")
     raw_runners = config.get("runners")
     if not isinstance(raw_runners, list) or not all(
         isinstance(runner, dict) for runner in raw_runners
@@ -172,10 +183,7 @@ def _prepare_python(runners: Mapping[str, Mapping[str, object]]) -> None:
             )
 
 
-def _adapter_command(
-    runner_id: str,
-    runner: Mapping[str, object],
-) -> tuple[list[str], dict[str, str]]:
+def _adapter_command(runner_id: str) -> tuple[list[str], dict[str, str]]:
     environment = os.environ.copy()
     source = str(ROOT / "src")
     environment["PYTHONPATH"] = (
@@ -191,11 +199,7 @@ def _adapter_command(
         )
         if not python.is_file():
             raise RuntimeError(f"{runner_id} environment is not synchronized")
-        return [
-            str(python),
-            "-m",
-            "mcp_statecheck.adapters.python_client",
-        ], environment
+        return [str(python), "-m", "mcp_statecheck.adapters.python_client"], environment
 
     node = shutil.which("node")
     if node is None:
@@ -227,27 +231,50 @@ def _request(
     runner_id: str,
     runner: Mapping[str, object],
     protocol_version: str,
-    report: Path,
+    transport: str,
+    target: list[str] | str,
     *,
     mode: str = "sdk-smoke",
 ) -> Envelope:
     return Envelope(
-        command_id=f"{runner_id}:{protocol_version}:{mode}",
+        command_id=f"{runner_id}:{transport}:{protocol_version}:{mode}",
         kind="run",
         payload={
             "actions": [action.to_dict() for action in ACTIONS],
-            "peer_command": _peer_command(
-                protocol_version,
-                report,
-                mode=mode,
-            ),
             "runner_id": runner_id,
             "sdk_version": runner["version"],
+            "target": target,
+            "transport": transport,
         },
     )
 
 
-def _expected_events(protocol_version: str) -> list[dict[str, object]]:
+def _peer_observation(
+    protocol_version: str,
+    transport: str,
+) -> dict[str, object]:
+    observation: dict[str, object] = {
+        "initialize_protocol_version": REQUESTED_PROTOCOL_VERSION,
+        "kind": "peer_observation",
+        "method_order": list(PEER_METHODS),
+        "negotiated_protocol_version": protocol_version,
+    }
+    if transport == "streamable-http":
+        observation.update(
+            {
+                "post_accept_headers_valid": True,
+                "protocol_headers_preserved": True,
+                "session_deleted": True,
+                "session_preserved": True,
+            }
+        )
+    return observation
+
+
+def _expected_events(
+    protocol_version: str,
+    transport: str,
+) -> list[dict[str, object]]:
     return [
         {
             "kind": "response",
@@ -274,12 +301,7 @@ def _expected_events(protocol_version: str) -> list[dict[str, object]]:
             "target_action_id": "call-echo",
             "text": "hello",
         },
-        {
-            "initialize_protocol_version": REQUESTED_PROTOCOL_VERSION,
-            "kind": "peer_observation",
-            "method_order": list(PEER_METHODS),
-            "negotiated_protocol_version": protocol_version,
-        },
+        _peer_observation(protocol_version, transport),
     ]
 
 
@@ -377,7 +399,36 @@ def _result_payload(
     )
 
 
-async def _peer_result(
+async def _exchange(
+    request: Envelope,
+    runner_id: str,
+    *,
+    timeout: float = 120,
+) -> tuple[Envelope, StdioTransport]:
+    command, environment = _adapter_command(runner_id)
+    transport = StdioTransport(
+        command,
+        cwd=ROOT,
+        env=environment,
+        timeout=timeout,
+        shutdown_timeout=5,
+    )
+    try:
+        async with transport:
+            await transport.send(request.to_dict())
+            response = Envelope.from_dict(await transport.receive())
+    except Exception as exc:
+        raise RuntimeError(
+            f"{runner_id} adapter exchange failed:\n{transport.stderr}"
+        ) from exc
+    if transport.returncode != 0:
+        raise RuntimeError(
+            f"{runner_id} adapter exited {transport.returncode}:\n{transport.stderr}"
+        )
+    return response, transport
+
+
+async def _stdio_peer_result(
     report: Path,
     protocol_version: str,
     *,
@@ -395,7 +446,42 @@ async def _peer_result(
     return result
 
 
-async def _run_cell(
+def _http_peer_observation(
+    peer: object,
+    protocol_version: str,
+) -> dict[str, object]:
+    state = peer.state  # type: ignore[attr-defined]
+    if tuple(state.post_methods) != PEER_METHODS:
+        raise RuntimeError("controlled HTTP peer observed the wrong method order")
+    if tuple(state.stdio_methods) != PEER_METHODS:
+        raise RuntimeError("controlled HTTP peer dispatched the wrong method order")
+    if state.initialize_protocol_versions != [REQUESTED_PROTOCOL_VERSION]:
+        raise RuntimeError("HTTP SDK client requested an unexpected protocol version")
+    if state.post_session_ids != [None, *([state.session_id] * 4)]:
+        raise RuntimeError("HTTP SDK client did not preserve its session")
+    if state.post_protocol_versions != [None, *([protocol_version] * 4)]:
+        raise RuntimeError("HTTP SDK client did not preserve its protocol version")
+    if any(
+        accept is None
+        or "application/json" not in accept.lower()
+        or "text/event-stream" not in accept.lower()
+        for accept in state.post_accepts
+    ):
+        raise RuntimeError("HTTP SDK client sent an invalid Accept header")
+    if (
+        state.delete_count != 1
+        or state.delete_session_ids != [state.session_id]
+        or state.delete_protocol_versions != [protocol_version]
+    ):
+        raise RuntimeError("HTTP SDK client did not delete its session")
+    if any(session_id != state.session_id for session_id in state.session_ids) or any(
+        version != protocol_version for version in state.protocol_versions
+    ):
+        raise RuntimeError("HTTP SDK client lost headers on its optional GET stream")
+    return _peer_observation(protocol_version, "streamable-http")
+
+
+async def _run_stdio_cell(
     runner_id: str,
     runner: Mapping[str, object],
     protocol_version: str,
@@ -405,46 +491,20 @@ async def _run_cell(
         runner_id,
         runner,
         protocol_version,
-        report,
+        "stdio",
+        _peer_command(protocol_version, report),
     )
-    command, environment = _adapter_command(runner_id, runner)
-    transport = StdioTransport(
-        command,
-        cwd=ROOT,
-        env=environment,
-        timeout=120,
-        shutdown_timeout=5,
-    )
-    try:
-        async with transport:
-            await transport.send(request.to_dict())
-            response = Envelope.from_dict(await transport.receive())
-    except Exception as exc:
-        raise RuntimeError(
-            f"{runner_id} adapter exchange failed:\n{transport.stderr}"
-        ) from exc
-    if transport.returncode != 0:
-        raise RuntimeError(
-            f"{runner_id} adapter exited {transport.returncode}:\n{transport.stderr}"
-        )
-
+    response, transport = await _exchange(request, runner_id)
     events, sdk_version, runtime_version, client_closed = _result_payload(
         response,
         command_id=request.command_id,
         runner_id=runner_id,
         runner=runner,
     )
-    peer = await _peer_result(report, protocol_version)
-    events.append(
-        {
-            "initialize_protocol_version": REQUESTED_PROTOCOL_VERSION,
-            "kind": "peer_observation",
-            "method_order": list(PEER_METHODS),
-            "negotiated_protocol_version": protocol_version,
-        }
-    )
-    if events != _expected_events(protocol_version):
-        raise RuntimeError(f"{runner_id} returned an unexpected normalized trace")
+    peer = await _stdio_peer_result(report, protocol_version)
+    events.append(_peer_observation(protocol_version, "stdio"))
+    if events != _expected_events(protocol_version, "stdio"):
+        raise RuntimeError(f"{runner_id} returned an unexpected stdio trace")
     return {
         "cleanup": {
             "adapter_reaped": transport.returncode is not None,
@@ -459,19 +519,47 @@ async def _run_cell(
     }
 
 
-async def _run_cleanup_probe(
+async def _run_http_cell(
     runner_id: str,
     runner: Mapping[str, object],
-    report: Path,
-) -> None:
-    request = _request(
-        runner_id,
-        runner,
-        REQUESTED_PROTOCOL_VERSION,
-        report,
-        mode="sdk-hang",
+    protocol_version: str,
+) -> dict[str, object]:
+    with _controlled_http_peer("sdk-smoke", protocol_version) as peer:
+        request = _request(
+            runner_id,
+            runner,
+            protocol_version,
+            "streamable-http",
+            peer.url,
+        )
+        response, transport = await _exchange(request, runner_id)
+        observation = _http_peer_observation(peer, protocol_version)
+
+    events, sdk_version, runtime_version, client_closed = _result_payload(
+        response,
+        command_id=request.command_id,
+        runner_id=runner_id,
+        runner=runner,
     )
-    command, environment = _adapter_command(runner_id, runner)
+    events.append(observation)
+    if events != _expected_events(protocol_version, "streamable-http"):
+        raise RuntimeError(f"{runner_id} returned an unexpected HTTP trace")
+    return {
+        "cleanup": {
+            "adapter_reaped": transport.returncode is not None,
+            "adapter_returncode": transport.returncode,
+            "client_closed": client_closed,
+            "listener_closed": True,
+            "session_deleted": True,
+        },
+        "events": events,
+        "runtime_version": runtime_version,
+        "sdk_version": sdk_version,
+    }
+
+
+async def _expect_adapter_timeout(request: Envelope, runner_id: str) -> None:
+    command, environment = _adapter_command(runner_id)
     transport = StdioTransport(
         command,
         cwd=ROOT,
@@ -489,61 +577,110 @@ async def _run_cleanup_probe(
         raise RuntimeError(f"{runner_id} cleanup probe did not reach its hard timeout")
     if transport.returncode in {None, 0}:
         raise RuntimeError(f"{runner_id} cleanup probe did not reap its adapter")
-    await _peer_result(
+
+
+async def _run_stdio_cleanup_probe(
+    runner_id: str,
+    runner: Mapping[str, object],
+    report: Path,
+) -> None:
+    request = _request(
+        runner_id,
+        runner,
+        REQUESTED_PROTOCOL_VERSION,
+        "stdio",
+        _peer_command(
+            REQUESTED_PROTOCOL_VERSION,
+            report,
+            mode="sdk-hang",
+        ),
+        mode="sdk-hang",
+    )
+    await _expect_adapter_timeout(request, runner_id)
+    await _stdio_peer_result(
         report,
         REQUESTED_PROTOCOL_VERSION,
         require_clean_exit=False,
     )
 
 
+async def _run_http_cleanup_probe(
+    runner_id: str,
+    runner: Mapping[str, object],
+) -> None:
+    with _controlled_http_peer("sdk-hang", REQUESTED_PROTOCOL_VERSION) as peer:
+        request = _request(
+            runner_id,
+            runner,
+            REQUESTED_PROTOCOL_VERSION,
+            "streamable-http",
+            peer.url,
+            mode="sdk-hang",
+        )
+        await _expect_adapter_timeout(request, runner_id)
+        if tuple(peer.state.post_methods) != PEER_METHODS:
+            raise RuntimeError("HTTP cleanup probe did not reach the hanging call")
+
+
 async def _build(output: Path) -> list[Path]:
     runners = _load_runners()
     _prepare_python(runners)
     _prepare_typescript(runners)
-    results: dict[tuple[str, str], dict[str, object]] = {}
+    results: dict[tuple[str, str, str], dict[str, object]] = {}
     with TemporaryDirectory(prefix="mcp-statecheck-m3-peer-") as temporary:
         reports = Path(temporary)
         for protocol_version in PROTOCOL_VERSIONS:
             for runner_id in RUNNER_IDS:
-                results[(runner_id, protocol_version)] = await _run_cell(
+                results[("stdio", runner_id, protocol_version)] = await _run_stdio_cell(
                     runner_id,
                     runners[runner_id],
                     protocol_version,
                     reports / f"{runner_id}-{protocol_version}.json",
                 )
+                results[
+                    ("streamable-http", runner_id, protocol_version)
+                ] = await _run_http_cell(
+                    runner_id,
+                    runners[runner_id],
+                    protocol_version,
+                )
         for runner_id in ("python-v1", "typescript-v1"):
-            await _run_cleanup_probe(
+            await _run_stdio_cleanup_probe(
                 runner_id,
                 runners[runner_id],
                 reports / f"{runner_id}-cleanup.json",
             )
+            await _run_http_cleanup_probe(runner_id, runners[runner_id])
 
     written: list[Path] = []
-    for protocol_version in PROTOCOL_VERSIONS:
-        for runner_id in RUNNER_IDS:
-            result = results[(runner_id, protocol_version)]
-            recorder = TraceRecorder(
-                protocol_version=protocol_version,
-                adapter=runner_id,
-                sdk_version=str(result["sdk_version"]),
-                transport="stdio",
-                seed=0,
-                fixture_id="sdk-client-smoke",
-                cleanup=result["cleanup"],  # type: ignore[arg-type]
-                generation={
-                    "engine": "real SDK stdio matrix",
-                    "requested_protocol_version": REQUESTED_PROTOCOL_VERSION,
-                    "runner_id": runner_id,
-                    "runtime_version": result["runtime_version"],
-                },
-            )
-            for action in ACTIONS:
-                recorder.record_action(action.to_dict())
-            for event in result["events"]:  # type: ignore[union-attr]
-                recorder.record_event(event)
-            written.append(
-                recorder.write(output / f"{runner_id}-{protocol_version}.json")
-            )
+    for transport in TRANSPORTS:
+        for protocol_version in PROTOCOL_VERSIONS:
+            for runner_id in RUNNER_IDS:
+                result = results[(transport, runner_id, protocol_version)]
+                recorder = TraceRecorder(
+                    protocol_version=protocol_version,
+                    adapter=runner_id,
+                    sdk_version=str(result["sdk_version"]),
+                    transport=transport,
+                    seed=0,
+                    fixture_id="sdk-client-smoke",
+                    cleanup=result["cleanup"],  # type: ignore[arg-type]
+                    generation={
+                        "engine": "real SDK client transport matrix",
+                        "requested_protocol_version": REQUESTED_PROTOCOL_VERSION,
+                        "runner_id": runner_id,
+                        "runtime_version": result["runtime_version"],
+                    },
+                )
+                for action in ACTIONS:
+                    recorder.record_action(action.to_dict())
+                for event in result["events"]:  # type: ignore[union-attr]
+                    recorder.record_event(event)
+                written.append(
+                    recorder.write(
+                        output / transport / f"{runner_id}-{protocol_version}.json"
+                    )
+                )
     return written
 
 
@@ -551,14 +688,18 @@ def _check(expected: Path) -> None:
     with TemporaryDirectory(prefix="mcp-statecheck-m3-check-") as temporary:
         actual = Path(temporary)
         generated = anyio.run(_build, actual)
-        expected_names = {path.name for path in generated}
-        checked_names = {path.name for path in expected.glob("*.json")}
+        expected_names = {path.relative_to(actual) for path in generated}
+        checked_names = {
+            path.relative_to(expected) for path in expected.rglob("*.json")
+        }
         if checked_names != expected_names:
             raise RuntimeError("checked-in M3 artifact set does not match the matrix")
         for path in generated:
-            checked = expected / path.name
+            checked = expected / path.relative_to(actual)
             if path.read_bytes() != checked.read_bytes():
-                raise RuntimeError(f"checked-in M3 artifact is stale: {path.name}")
+                raise RuntimeError(
+                    f"checked-in M3 artifact is stale: {path.relative_to(actual)}"
+                )
 
 
 def main() -> int:
@@ -568,10 +709,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.check:
         _check(args.output)
-        print("M3 stdio matrix passed: 8/8 real SDK client cells match artifacts")
+        print("M3 client matrix passed: 16/16 real SDK transport cells match artifacts")
     else:
         written = anyio.run(_build, args.output)
-        print(f"M3 stdio matrix passed: wrote {len(written)} real SDK client traces")
+        print(f"M3 client matrix passed: wrote {len(written)} real SDK traces")
     return 0
 
 

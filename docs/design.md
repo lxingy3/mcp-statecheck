@@ -130,37 +130,37 @@ the controlled-fixture M2 gate.
 
 ## M3 implementation status
 
-M3 currently covers the full stdio client half. It runs four pinned SDK clients
-against controlled peers:
+M3 covers the full client transport matrix. It runs four pinned SDK clients
+against controlled stdio and localhost Streamable HTTP peers:
 
-- Python `mcp` 1.28.1 and 2.0.0b2 under Python 3.12.13;
-- TypeScript `@modelcontextprotocol/sdk` 1.29.0 and
-  `@modelcontextprotocol/client` 2.0.0-beta.5 under Node.js 24.14.1.
+- Python `mcp` 1.28.1 and 2.0.0rc1 under Python 3.12.13;
+- TypeScript `@modelcontextprotocol/sdk` 1.30.0 and
+  `@modelcontextprotocol/client` 2.0.0 under Node.js 24.14.1.
 
 Each runner executes the same valid client sequence against MCP 2025-06-18 and
 2025-11-25: initialize, send the initialized notification, ping, list tools,
 call the `echo` tool, and close. The controlled peer records the method order,
-requested version, negotiated version, and clean exit. All four runners produce
-the same normalized events for each protocol revision.
+requested version, negotiated version, and clean exit. The HTTP peer also
+checks media negotiation, session and protocol headers after initialization,
+the closing DELETE, and listener shutdown. All four runners produce the same
+normalized events for each protocol revision and transport.
 
 The Python and TypeScript versions each have separate committed dependency
 lockfiles and environments. The adapter boundary remains the schema v1 JSON
 Lines envelope used elsewhere in the project. Every saved cell records SDK
-client shutdown plus adapter and peer process cleanup. The matrix also forces
-one runner from each language to hang inside a real SDK call, applies the outer
-hard timeout, and verifies by PID that the adapter and peer are gone.
+client shutdown plus adapter and peer or listener cleanup. The matrix also
+forces one runner from each language and transport to hang inside a real SDK
+call, applies the outer hard timeout, and verifies cleanup.
 
-The checked-in traces are under `artifacts/m3/stdio/`. This command recreates
-all eight cells in a temporary directory and compares them byte for byte with
-the saved artifacts:
+The checked-in traces are under `artifacts/m3/{stdio,streamable-http}/`. This
+command recreates all 16 cells in a temporary directory and compares them byte
+for byte with the saved artifacts:
 
 ```console
-uv run python scripts/run_m3_stdio_matrix.py --check
+uv run python scripts/run_m3_client_matrix.py --check
 ```
 
-The result is 8/8 stdio client cells and 8/16 cells in the client transport
-matrix. The eight Streamable HTTP client cells are not implemented yet, so M3
-is not complete.
+The result is 16/16 client transport cells. This closes M3.
 
 ## v0.1 release gate
 

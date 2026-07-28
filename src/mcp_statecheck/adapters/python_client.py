@@ -1,4 +1,4 @@
-"""Isolated Python SDK client runner for the M3 stdio matrix."""
+"""Isolated Python SDK client runner for the M3 transport matrix."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import sys
 import traceback
 from collections.abc import Mapping
 from importlib.metadata import version
+from urllib.parse import urlsplit
 
 import anyio
 
@@ -33,31 +34,52 @@ def _attribute(value: object, *names: str) -> object:
 
 def _command(
     envelope: Envelope,
-) -> tuple[str, str, tuple[str, ...], tuple[Action, ...]]:
+) -> tuple[str, str, str, tuple[str, ...] | str, tuple[Action, ...]]:
     if envelope.kind != "run":
         raise ValueError("adapter envelope kind must be 'run'")
     if set(envelope.payload) != {
         "actions",
-        "peer_command",
         "runner_id",
         "sdk_version",
+        "target",
+        "transport",
     }:
         raise ValueError("adapter payload fields do not match schema v1")
 
     runner_id = envelope.payload["runner_id"]
     sdk_version = envelope.payload["sdk_version"]
-    peer_command = envelope.payload["peer_command"]
+    transport = envelope.payload["transport"]
+    target = envelope.payload["target"]
     raw_actions = envelope.payload["actions"]
     if runner_id not in {"python-v1", "python-v2"}:
         raise ValueError("unsupported Python runner")
     if not isinstance(sdk_version, str) or not sdk_version:
         raise TypeError("sdk_version must be a non-empty string")
-    if (
-        not isinstance(peer_command, list)
-        or not peer_command
-        or not all(isinstance(part, str) and part for part in peer_command)
-    ):
-        raise TypeError("peer_command must be a non-empty string array")
+    if transport == "stdio":
+        if (
+            not isinstance(target, list)
+            or not target
+            or not all(isinstance(part, str) and part for part in target)
+        ):
+            raise TypeError("stdio target must be a non-empty string array")
+        parsed_target: tuple[str, ...] | str = tuple(target)
+    elif transport == "streamable-http":
+        if not isinstance(target, str):
+            raise TypeError("Streamable HTTP target must be a string")
+        parsed = urlsplit(target)
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname != "127.0.0.1"
+            or parsed.path != "/mcp"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Streamable HTTP target must be a loopback /mcp URL")
+        parsed_target = target
+    else:
+        raise ValueError("unsupported transport")
     if not isinstance(raw_actions, list) or not all(
         isinstance(action, Mapping) for action in raw_actions
     ):
@@ -75,97 +97,121 @@ def _command(
         or actions[5].payload != {"name": "echo", "arguments": {"text": "hello"}}
     ):
         raise ValueError("unsupported canonical action payload")
-    return runner_id, sdk_version, tuple(peer_command), actions
+    return runner_id, sdk_version, transport, parsed_target, actions
 
 
-async def _run(peer_command: tuple[str, ...], actions: tuple[Action, ...]):
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
+async def _exercise_session(
+    read_stream: object,
+    write_stream: object,
+    actions: tuple[Action, ...],
+) -> list[dict[str, object]]:
+    from mcp import ClientSession
 
-    parameters = StdioServerParameters(
-        command=peer_command[0],
-        args=list(peer_command[1:]),
-    )
     events: list[dict[str, object]] = []
-    async with stdio_client(parameters) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            initialized = await session.initialize()
-            server_info = _attribute(initialized, "serverInfo", "server_info")
-            events.append(
-                {
-                    "kind": "response",
-                    "method": "initialize",
-                    "protocol_version": str(
-                        _attribute(
-                            initialized,
-                            "protocolVersion",
-                            "protocol_version",
-                        )
-                    ),
-                    "server_info": {
-                        "name": _attribute(server_info, "name"),
-                        "version": _attribute(server_info, "version"),
-                    },
-                    "target_action_id": actions[1].action_id,
-                }
-            )
+    async with ClientSession(read_stream, write_stream) as session:  # type: ignore[arg-type]
+        initialized = await session.initialize()
+        server_info = _attribute(initialized, "serverInfo", "server_info")
+        events.append(
+            {
+                "kind": "response",
+                "method": "initialize",
+                "protocol_version": str(
+                    _attribute(
+                        initialized,
+                        "protocolVersion",
+                        "protocol_version",
+                    )
+                ),
+                "server_info": {
+                    "name": _attribute(server_info, "name"),
+                    "version": _attribute(server_info, "version"),
+                },
+                "target_action_id": actions[1].action_id,
+            }
+        )
 
-            await session.send_ping()
-            events.append(
-                {
-                    "kind": "response",
-                    "method": "ping",
-                    "target_action_id": actions[3].action_id,
-                }
-            )
+        await session.send_ping()
+        events.append(
+            {
+                "kind": "response",
+                "method": "ping",
+                "target_action_id": actions[3].action_id,
+            }
+        )
 
-            tools = await session.list_tools()
-            events.append(
-                {
-                    "kind": "response",
-                    "method": "tools/list",
-                    "target_action_id": actions[4].action_id,
-                    "tool_names": sorted(tool.name for tool in tools.tools),
-                }
-            )
+        tools = await session.list_tools()
+        events.append(
+            {
+                "kind": "response",
+                "method": "tools/list",
+                "target_action_id": actions[4].action_id,
+                "tool_names": sorted(tool.name for tool in tools.tools),
+            }
+        )
 
-            call = actions[5].payload
-            if not isinstance(call, dict):
-                raise TypeError("tools/call payload must be an object")
-            arguments = call.get("arguments")
-            if not isinstance(arguments, dict):
-                raise TypeError("tools/call arguments must be an object")
-            result = await session.call_tool(str(call.get("name")), arguments)
-            texts = [
-                content.text
-                for content in result.content
-                if getattr(content, "type", None) == "text"
-            ]
-            events.append(
-                {
-                    "is_error": bool(
-                        getattr(result, "isError", getattr(result, "is_error", False))
-                    ),
-                    "kind": "response",
-                    "method": "tools/call",
-                    "target_action_id": actions[5].action_id,
-                    "text": "\n".join(texts),
-                }
-            )
+        call = actions[5].payload
+        if not isinstance(call, dict):
+            raise TypeError("tools/call payload must be an object")
+        arguments = call.get("arguments")
+        if not isinstance(arguments, dict):
+            raise TypeError("tools/call arguments must be an object")
+        result = await session.call_tool(str(call.get("name")), arguments)
+        texts = [
+            content.text
+            for content in result.content
+            if getattr(content, "type", None) == "text"
+        ]
+        events.append(
+            {
+                "is_error": bool(
+                    getattr(result, "isError", getattr(result, "is_error", False))
+                ),
+                "kind": "response",
+                "method": "tools/call",
+                "target_action_id": actions[5].action_id,
+                "text": "\n".join(texts),
+            }
+        )
     return events
+
+
+async def _run(
+    transport: str,
+    target: tuple[str, ...] | str,
+    actions: tuple[Action, ...],
+) -> list[dict[str, object]]:
+    if transport == "stdio":
+        from mcp import StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        if not isinstance(target, tuple):
+            raise TypeError("stdio target must be an argv tuple")
+        parameters = StdioServerParameters(
+            command=target[0],
+            args=list(target[1:]),
+        )
+        async with stdio_client(parameters) as streams:
+            return await _exercise_session(streams[0], streams[1], actions)
+
+    from mcp.client.streamable_http import streamable_http_client
+
+    if not isinstance(target, str):
+        raise TypeError("Streamable HTTP target must be a URL")
+    async with streamable_http_client(target) as streams:
+        return await _exercise_session(streams[0], streams[1], actions)
 
 
 def main() -> int:
     try:
         line = sys.stdin.buffer.readline()
         envelope = loads_line(line, line_number=1)
-        runner_id, expected_sdk_version, peer_command, actions = _command(envelope)
+        runner_id, expected_sdk_version, transport, target, actions = _command(envelope)
         actual_sdk_version = version("mcp")
         if actual_sdk_version != expected_sdk_version:
             raise RuntimeError(
                 f"loaded mcp {actual_sdk_version}, expected {expected_sdk_version}"
             )
-        events = anyio.run(_run, peer_command, actions)
+        events = anyio.run(_run, transport, target, actions)
         response = Envelope(
             command_id=envelope.command_id,
             kind="result",

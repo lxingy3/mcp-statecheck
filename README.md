@@ -11,10 +11,9 @@ cancel one, reconnect an SSE stream, or recover from an expired session.
 wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
-> This project is pre-alpha. M0-M2 are complete across all five controlled
-> fixtures. M3 has real results for all eight stdio client cells. Streamable
-> HTTP client cells, reports, the CLI, and the v0.1 release gate are still
-> ahead.
+> This project is pre-alpha. M0-M3 are complete: all five controlled fixtures
+> and all 16 real SDK client transport cells have checked-in evidence. Reports,
+> the CLI, and the v0.1 release gate are still ahead.
 
 ## What works today
 
@@ -27,7 +26,7 @@ wire behavior as deterministic, redacted traces.
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
-| M3 stdio clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions, with 8/8 cells checked against saved traces |
+| M3 real SDK clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions and both transports, with 16/16 cells checked against saved traces |
 
 ```mermaid
 flowchart LR
@@ -134,33 +133,32 @@ captures the actual cursor, session, and protocol headers. Each HTTP candidate
 and replay uses a fresh localhost peer, verifies client and listener cleanup,
 and verifies session deletion when a session was established.
 
-## Reproduce the current M3 slice
+## Reproduce M3
 
-The stdio client matrix covers four pinned SDK runners and both released
-protocol revisions in the benchmark. It requires `uv` and Node.js 24.14.1;
-the command installs the exact isolated Python and npm dependencies:
+The client matrix covers four pinned SDK runners, both released protocol
+revisions in the benchmark, and both stdio and Streamable HTTP. It requires
+`uv` and Node.js 24.14.1; the command installs the exact isolated Python and
+npm dependencies:
 
 | Runner | SDK | 2025-06-18 | 2025-11-25 |
 | --- | --- | --- | --- |
-| `python-v1` | `mcp 1.28.1` | [trace](artifacts/m3/stdio/python-v1-2025-06-18.json) | [trace](artifacts/m3/stdio/python-v1-2025-11-25.json) |
-| `python-v2` | `mcp 2.0.0b2` | [trace](artifacts/m3/stdio/python-v2-2025-06-18.json) | [trace](artifacts/m3/stdio/python-v2-2025-11-25.json) |
-| `typescript-v1` | `@modelcontextprotocol/sdk 1.29.0` | [trace](artifacts/m3/stdio/typescript-v1-2025-06-18.json) | [trace](artifacts/m3/stdio/typescript-v1-2025-11-25.json) |
-| `typescript-v2` | `@modelcontextprotocol/client 2.0.0-beta.5` | [trace](artifacts/m3/stdio/typescript-v2-2025-06-18.json) | [trace](artifacts/m3/stdio/typescript-v2-2025-11-25.json) |
+| `python-v1` | `mcp 1.28.1` | [stdio](artifacts/m3/stdio/python-v1-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/python-v1-2025-06-18.json) | [stdio](artifacts/m3/stdio/python-v1-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/python-v1-2025-11-25.json) |
+| `python-v2` | `mcp 2.0.0rc1` | [stdio](artifacts/m3/stdio/python-v2-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/python-v2-2025-06-18.json) | [stdio](artifacts/m3/stdio/python-v2-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/python-v2-2025-11-25.json) |
+| `typescript-v1` | `@modelcontextprotocol/sdk 1.30.0` | [stdio](artifacts/m3/stdio/typescript-v1-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/typescript-v1-2025-06-18.json) | [stdio](artifacts/m3/stdio/typescript-v1-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/typescript-v1-2025-11-25.json) |
+| `typescript-v2` | `@modelcontextprotocol/client 2.0.0` | [stdio](artifacts/m3/stdio/typescript-v2-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/typescript-v2-2025-06-18.json) | [stdio](artifacts/m3/stdio/typescript-v2-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/typescript-v2-2025-11-25.json) |
 
 ```console
-$ uv run python scripts/run_m3_stdio_matrix.py --check
-M3 stdio matrix passed: 8/8 real SDK client cells match artifacts
+$ uv run python scripts/run_m3_client_matrix.py --check
+M3 client matrix passed: 16/16 real SDK transport cells match artifacts
 ```
 
 Each runner performs initialization, ping, tool discovery, and one `echo` tool
 call against a controlled peer. For each protocol revision, all four runners
-produce the same normalized events. The saved traces also record clean SDK
-client shutdown and verified reaping of both the adapter and peer processes.
-The check additionally forces one Python and one TypeScript SDK call to hit the
-outer timeout and verifies that neither process tree remains alive.
-
-This is 8/8 stdio cells and 8/16 cells in the client transport matrix.
-Streamable HTTP accounts for the other eight client cells.
+produce the same normalized events. The HTTP traces additionally prove
+post-initialize session and protocol header preservation, valid content
+negotiation, session deletion, and listener cleanup. The check also forces one
+Python and one TypeScript SDK call per transport to hit the outer timeout and
+verifies cleanup.
 
 ## Project boundaries
 
@@ -181,7 +179,7 @@ outside the v0.1 scope.
 | M0 | Complete | Reproducible Python 3.12 environment, lockfile, design baseline, and cross-platform CI |
 | M1 | Complete | Canonical model, wire transports, trace recorder, and controlled peers |
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
-| M3 | In progress | stdio client matrix complete at 8/8 cells; eight Streamable HTTP client cells remain |
+| M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Planned | CLI, JUnit/SARIF/HTML reports, GitHub Action, documentation, and the v0.1 gate |
 
 The source repository is public during development. GitHub Releases and PyPI
@@ -198,7 +196,7 @@ publication remain blocked until the full
 - [M2 duplicate request ID failure](artifacts/m2/duplicate-concurrent-request-id.json)
 - [M2 cancellation correlation failure](artifacts/m2/late-response-after-cancellation.json)
 - [M2 SSE resume failure](artifacts/m2/second-sse-resume-token-loss.json)
-- [M3 stdio client traces](artifacts/m3/stdio/)
+- [M3 real SDK client traces](artifacts/m3/)
 - [M3 benchmark pins](benchmarks/mcp-v2.toml)
 
 ## License

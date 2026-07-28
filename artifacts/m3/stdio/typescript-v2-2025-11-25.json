@@ -107,7 +107,7 @@
   },
   "fixture_id": "sdk-client-smoke",
   "generation": {
-    "engine": "real SDK stdio matrix",
+    "engine": "real SDK client transport matrix",
     "requested_protocol_version": "2025-11-25",
     "runner_id": "typescript-v2",
     "runtime_version": "24.14.1"
@@ -163,7 +163,7 @@
   ],
   "protocol_version": "2025-11-25",
   "schema_version": 1,
-  "sdk_version": "2.0.0-beta.5",
+  "sdk_version": "2.0.0",
   "seed": 0,
   "transport": "stdio"
 }
