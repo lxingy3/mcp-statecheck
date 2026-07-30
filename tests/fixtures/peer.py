@@ -52,6 +52,7 @@ class PeerState:
     delete_count: int = 0
     delete_session_ids: list[str | None] = field(default_factory=list)
     delete_protocol_versions: list[str | None] = field(default_factory=list)
+    delete_authorizations: list[str | None] = field(default_factory=list)
     post_methods: list[str | None] = field(default_factory=list)
     post_accepts: list[str | None] = field(default_factory=list)
     post_session_ids: list[str | None] = field(default_factory=list)
@@ -267,6 +268,17 @@ class PeerState:
         return [_result(request_id, {})] if "id" in message else []
 
 
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps({**payload, "pid": os.getpid()}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.replace(temporary, path)
+
+
 def _write_stdio_report(
     report: Path | None,
     state: PeerState,
@@ -276,8 +288,6 @@ def _write_stdio_report(
 ) -> None:
     if report is None:
         return
-    report.parent.mkdir(parents=True, exist_ok=True)
-    temporary = report.with_name(f".{report.name}.{os.getpid()}.tmp")
     payload = {
         "clean_exit": clean_exit,
         "initialize_protocol_versions": state.initialize_protocol_versions,
@@ -286,12 +296,7 @@ def _write_stdio_report(
     }
     if state.mode == "server-ping-before-response":
         payload["server_ping_responses"] = len(state.server_ping_responses)
-    temporary.write_text(
-        json.dumps({**payload, "pid": os.getpid()}, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    os.replace(temporary, report)
+    _write_json(report, payload)
 
 
 def run_stdio(
@@ -461,6 +466,7 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                 state.delete_protocol_versions.append(
                     self.headers.get("MCP-Protocol-Version")
                 )
+                state.delete_authorizations.append(self.headers.get("Authorization"))
                 self._send(200)
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -488,6 +494,52 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
             return
         probe.close()
         raise RuntimeError("fixture HTTP listener still accepts connections")
+
+
+def run_http(
+    mode: str,
+    *,
+    protocol_version: str,
+    ready: Path,
+    report: Path,
+    expected_authorization: str | None,
+) -> int:
+    peer = ControlledHTTPPeer(mode, protocol_version=protocol_version)
+    clean_exit = False
+    listener_closed = False
+    try:
+        with peer:
+            _write_json(ready, {"url": peer.url})
+            sys.stdin.read()
+        listener_closed = True
+        clean_exit = True
+        return 0
+    except Exception as exc:
+        print(f"fixture HTTP error: {exc}", file=sys.stderr, flush=True)
+        return 2
+    finally:
+        state = peer.state
+        _write_json(
+            report,
+            {
+                "accept_consistent": state.post_accepts
+                == ["application/json, text/event-stream"] * 4,
+                "authorization_consistent": state.post_authorizations
+                == [expected_authorization] * 4
+                and state.delete_authorizations == [expected_authorization],
+                "clean_exit": clean_exit,
+                "delete_count": state.delete_count,
+                "listener_closed": listener_closed,
+                "methods": state.post_methods,
+                "negotiated_protocol_version": protocol_version,
+                "protocol_version_preserved": state.post_protocol_versions
+                == [None, protocol_version, protocol_version, protocol_version]
+                and state.delete_protocol_versions == [protocol_version],
+                "session_preserved": state.post_session_ids
+                == [None, state.session_id, state.session_id, state.session_id]
+                and state.delete_session_ids == [state.session_id],
+            },
+        )
 
 
 async def execute_controlled_http_fault(
@@ -602,7 +654,9 @@ async def execute_controlled_http_fault(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stdio", action="store_true")
+    transport = parser.add_mutually_exclusive_group(required=True)
+    transport.add_argument("--stdio", action="store_true")
+    transport.add_argument("--http", action="store_true")
     parser.add_argument("--mode", required=True)
     parser.add_argument(
         "--protocol-version",
@@ -610,13 +664,32 @@ def main() -> int:
         default="2025-11-25",
     )
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--ready", type=Path)
+    parser.add_argument("--authorization-env")
     args = parser.parse_args()
-    if not args.stdio:
-        parser.error("only --stdio is available from the command line")
-    return run_stdio(
+    if args.stdio:
+        if args.ready is not None or args.authorization_env is not None:
+            parser.error("--ready and --authorization-env require --http")
+        return run_stdio(
+            args.mode,
+            protocol_version=args.protocol_version,
+            report=args.report,
+        )
+    if args.ready is None or args.report is None:
+        parser.error("--http requires --ready and --report")
+    expected_authorization = None
+    if args.authorization_env is not None:
+        expected_authorization = os.environ.get(args.authorization_env)
+        if not expected_authorization:
+            parser.error(
+                "--authorization-env must name a non-empty environment variable"
+            )
+    return run_http(
         args.mode,
         protocol_version=args.protocol_version,
+        ready=args.ready,
         report=args.report,
+        expected_authorization=expected_authorization,
     )
 
 

@@ -199,8 +199,11 @@ validated source mapping.
 
 The root composite Action accepts a JSON string array, validates `list[str]`,
 and calls the same CLI without shell interpolation. Pull request CI covers
-Ubuntu and Windows, including a clean wheel/sdist installation and the local
-Action. A scheduled macOS workflow runs the complete 16-cell real SDK matrix.
+Ubuntu and Windows, including isolated wheel/sdist imports, installed-console
+stdio and localhost Streamable HTTP checks, four report formats per transport,
+independent HTTP session/listener/process cleanup evidence, and the local
+Action. A scheduled macOS workflow runs the complete 16-cell real SDK matrix
+and the same clean-package acceptance.
 
 Installed `matrix`, `replay`, and `deep` commands are deliberately absent from
 this slice. The current M2/M3 harnesses depend on repository-owned controlled

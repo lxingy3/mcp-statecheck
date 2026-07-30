@@ -11,6 +11,10 @@
     "sdist": "mcp-statecheck 0.1.0.dev0",
     "wheel": "mcp-statecheck 0.1.0.dev0"
   },
+  "import_origins": {
+    "sdist": "isolated",
+    "wheel": "isolated"
+  },
   "milestone": "M4",
   "package_version": "0.1.0.dev0",
   "python": "3.12.13",
@@ -31,10 +35,22 @@
     "protocol_version": "2025-11-25",
     "status": "passed"
   },
+  "streamable_http": {
+    "authorization_secret_absent": true,
+    "fixture": "sdk-smoke",
+    "listener_closed": true,
+    "peer_clean_exit": true,
+    "peer_reaped": true,
+    "protocol_version": "2025-11-25",
+    "session_deleted": true,
+    "status": "passed"
+  },
   "timeouts_seconds": {
     "build": 180,
     "check": 30,
     "install": 180,
+    "peer_ready": 10,
+    "peer_stop": 10,
     "process_probe": 10,
     "venv": 120,
     "version": 15

@@ -6,16 +6,20 @@ import argparse
 import csv
 import json
 import os
+import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = Path("artifacts/m4/acceptance.json")
@@ -27,6 +31,8 @@ TIMEOUTS = {
     "install": 180,
     "version": 15,
     "check": 30,
+    "peer_ready": 10,
+    "peer_stop": 10,
     "process_probe": 10,
 }
 
@@ -42,30 +48,45 @@ def _clean_environment() -> dict[str, str]:
     return environment
 
 
-def _stop_process_tree(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
+def _stop_process_tree(
+    process: subprocess.Popen[str],
+    *,
+    extra_pids: Sequence[int] = (),
+) -> None:
+    if process.poll() is not None and not extra_pids:
         return
     if os.name == "nt":
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=TIMEOUTS["process_probe"],
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            process.kill()
+        for pid in dict.fromkeys((process.pid, *extra_pids)):
+            try:
+                result = subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=TIMEOUTS["process_probe"],
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                result = None
+            if result is None or result.returncode != 0:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    try:
-        process.wait(timeout=TIMEOUTS["process_probe"])
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=TIMEOUTS["process_probe"])
+        except OSError:
+            for pid in extra_pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+    if process.poll() is None:
+        try:
+            process.wait(timeout=TIMEOUTS["process_probe"])
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=TIMEOUTS["process_probe"])
 
 
 def _run(
@@ -140,16 +161,18 @@ def _validate_outputs(
     junit_path: Path,
     sarif_path: Path,
     html_path: Path,
-    peer_path: Path,
     package_version: str,
-) -> int:
+    *,
+    transport: str,
+    cleanup: dict[str, object],
+) -> None:
     artifact = _json_object(artifact_path, "JSON report")
     expected_artifact = {
         "schema_version": 1,
         "protocol_version": PROTOCOL_VERSION,
         "adapter": "wire",
         "sdk_version": "none",
-        "transport": "stdio",
+        "transport": transport,
         "fixture_id": "server-smoke",
     }
     if any(artifact.get(key) != value for key, value in expected_artifact.items()):
@@ -157,9 +180,8 @@ def _validate_outputs(
     generation = artifact.get("generation")
     if not isinstance(generation, dict) or generation.get("outcome") != "passed":
         raise AcceptanceError("JSON report does not record a passing check")
-    cleanup = artifact.get("cleanup")
-    if cleanup != {"server_reaped": True, "server_returncode": 0}:
-        raise AcceptanceError("JSON report does not prove stdio server cleanup")
+    if artifact.get("cleanup") != cleanup:
+        raise AcceptanceError(f"JSON report does not prove {transport} cleanup")
     if "failure" in artifact:
         raise AcceptanceError("passing JSON report contains a failure")
     response_targets = {
@@ -208,6 +230,8 @@ def _validate_outputs(
     ):
         raise AcceptanceError("HTML report is not a script-free passing report")
 
+
+def _validate_stdio_peer(peer_path: Path) -> int:
     peer = _json_object(peer_path, "controlled peer report")
     expected_peer = {
         "clean_exit": True,
@@ -226,6 +250,31 @@ def _validate_outputs(
     if type(pid) is not int or pid <= 0:
         raise AcceptanceError("controlled peer report has an invalid PID")
     return pid
+
+
+def _validate_http_peer(peer_path: Path, expected_pid: int) -> None:
+    peer = _json_object(peer_path, "controlled HTTP peer report")
+    expected_peer = {
+        "accept_consistent": True,
+        "authorization_consistent": True,
+        "clean_exit": True,
+        "delete_count": 1,
+        "listener_closed": True,
+        "methods": [
+            "initialize",
+            "notifications/initialized",
+            "ping",
+            "tools/list",
+        ],
+        "negotiated_protocol_version": PROTOCOL_VERSION,
+        "protocol_version_preserved": True,
+        "session_preserved": True,
+        "pid": expected_pid,
+    }
+    if any(peer.get(key) != value for key, value in expected_peer.items()):
+        raise AcceptanceError(
+            "controlled HTTP peer did not prove headers, session, or cleanup"
+        )
 
 
 def _pid_exists(
@@ -257,23 +306,129 @@ def _pid_exists(
     return any(line.strip() == str(pid) for line in result.stdout.splitlines())
 
 
-def _stop_pid(pid: int) -> None:
-    if os.name == "nt":
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=TIMEOUTS["process_probe"],
+def _start_http_peer(
+    command: Sequence[str | Path],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        [str(part) for part in command],
+        cwd=cwd,
+        env=dict(environment),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+        start_new_session=os.name != "nt",
+    )
+
+
+def _wait_for_http_peer(
+    ready_path: Path,
+    process: subprocess.Popen[str],
+) -> tuple[str, str, int, int]:
+    deadline = time.monotonic() + TIMEOUTS["peer_ready"]
+    while time.monotonic() < deadline:
+        if ready_path.is_file():
+            ready = _json_object(ready_path, "controlled HTTP peer ready record")
+            peer_pid = ready.get("pid")
+            if type(peer_pid) is not int or peer_pid <= 0:
+                raise AcceptanceError("controlled HTTP peer ready PID is invalid")
+            url = ready.get("url")
+            if not isinstance(url, str):
+                raise AcceptanceError("controlled HTTP peer ready URL is invalid")
+            parsed = urlsplit(url)
+            try:
+                port = parsed.port
+            except ValueError as exc:
+                raise AcceptanceError(
+                    "controlled HTTP peer ready URL is invalid"
+                ) from exc
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname != "127.0.0.1"
+                or port is None
+                or parsed.path != "/mcp"
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise AcceptanceError(
+                    "controlled HTTP peer did not bind an explicit localhost endpoint"
+                )
+            return url, parsed.hostname, port, peer_pid
+        returncode = process.poll()
+        if returncode is not None:
+            raise AcceptanceError(
+                f"controlled HTTP peer exited before ready with status {returncode}"
             )
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-        return
+        time.sleep(0.05)
+    raise AcceptanceError("controlled HTTP peer did not become ready")
+
+
+def _finish_http_peer(
+    process: subprocess.Popen[str],
+    *,
+    peer_pid: int | None,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> tuple[str, str]:
     try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+        stdout, stderr = process.communicate(
+            input="",
+            timeout=TIMEOUTS["peer_stop"],
+        )
+    except subprocess.TimeoutExpired as exc:
+        _stop_process_tree(
+            process,
+            extra_pids=(peer_pid,) if peer_pid is not None else (),
+        )
+        if peer_pid is not None and _pid_exists(
+            peer_pid,
+            cwd=cwd,
+            environment=environment,
+        ):
+            raise AcceptanceError(
+                f"controlled HTTP peer {peer_pid} survived timeout cleanup"
+            ) from exc
+        raise AcceptanceError(
+            "controlled HTTP peer did not stop after stdin EOF"
+        ) from exc
+    if process.returncode != 0:
+        detail = (stderr or stdout).strip()
+        suffix = f": {detail[-2000:]}" if detail else ""
+        raise AcceptanceError(
+            f"controlled HTTP peer exited with status {process.returncode}{suffix}"
+        )
+    return stdout, stderr
+
+
+def _listener_accepts(host: str, port: int) -> bool:
+    try:
+        connection = socket.create_connection((host, port), timeout=0.5)
+    except OSError:
+        return False
+    connection.close()
+    return True
+
+
+def _assert_secret_absent(
+    secret: str,
+    paths: Sequence[Path],
+    outputs: Sequence[str],
+) -> None:
+    for path in paths:
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise AcceptanceError(f"could not inspect {path.name} for secrets") from exc
+        if secret in content:
+            raise AcceptanceError(f"HTTP secret leaked into {path.name}")
+    if any(secret in output for output in outputs):
+        raise AcceptanceError("HTTP secret leaked into process output")
 
 
 def _atomic_write(path: Path, value: Mapping[str, object]) -> None:
@@ -330,6 +485,7 @@ def _accept() -> dict[str, object]:
         sdist = _one(distributions, "mcp_statecheck-*.tar.gz", "sdist")
 
         installs: dict[str, tuple[Path, Path]] = {}
+        import_origins: dict[str, str] = {}
         versions: dict[str, str] = {}
         for kind, distribution in (("wheel", wheel), ("sdist", sdist)):
             venv = work / f"{kind}-venv"
@@ -361,6 +517,26 @@ def _accept() -> dict[str, object]:
                 raise AcceptanceError(
                     f"{kind} used Python {runtime}, expected {PYTHON_VERSION}"
                 )
+            origin_text = _run(
+                [
+                    python,
+                    "-c",
+                    "import mcp_statecheck; print(mcp_statecheck.__file__)",
+                ],
+                cwd=work,
+                environment=environment,
+                timeout=TIMEOUTS["version"],
+                label=f"{kind} import origin check",
+            ).stdout.strip()
+            origin = Path(origin_text).resolve()
+            if (
+                not origin.is_file()
+                or not origin.is_relative_to(venv.resolve())
+                or origin.is_relative_to(ROOT.resolve())
+            ):
+                raise AcceptanceError(
+                    f"{kind} imported mcp-statecheck outside its clean environment"
+                )
             version = _run(
                 [console, "--version"],
                 cwd=work,
@@ -373,16 +549,18 @@ def _accept() -> dict[str, object]:
                     f"{kind} console reported {version!r}, expected {expected_version!r}"
                 )
             installs[kind] = (python, console)
+            import_origins[kind] = "isolated"
             versions[kind] = version
 
         reports = work / "reports"
-        artifact = reports / "run.json"
-        junit = reports / "run.xml"
-        sarif = reports / "run.sarif"
-        html = reports / "run.html"
-        peer_report = reports / "peer.json"
+        stdio_artifact = reports / "stdio.json"
+        stdio_junit = reports / "stdio.xml"
+        stdio_sarif = reports / "stdio.sarif"
+        stdio_html = reports / "stdio.html"
+        stdio_peer_report = reports / "stdio-peer.json"
+        peer_fixture = (ROOT / "tests" / "fixtures" / "peer.py").resolve()
         wheel_python, wheel_console = installs["wheel"]
-        check = _run(
+        stdio_check = _run(
             [
                 wheel_console,
                 "check",
@@ -390,23 +568,23 @@ def _accept() -> dict[str, object]:
                 "--timeout",
                 "5",
                 "--output",
-                artifact,
+                stdio_artifact,
                 "--junit",
-                junit,
+                stdio_junit,
                 "--sarif",
-                sarif,
+                stdio_sarif,
                 "--html",
-                html,
+                stdio_html,
                 "--",
                 wheel_python,
-                (ROOT / "tests" / "fixtures" / "peer.py").resolve(),
+                peer_fixture,
                 "--stdio",
                 "--mode",
                 "sdk-smoke",
                 "--protocol-version",
                 PROTOCOL_VERSION,
                 "--report",
-                peer_report,
+                stdio_peer_report,
             ],
             cwd=work,
             environment=environment,
@@ -414,20 +592,130 @@ def _accept() -> dict[str, object]:
             label="clean wheel stdio check",
             expected=(0, 1, 2),
         )
-        pid = _validate_outputs(
-            artifact,
-            junit,
-            sarif,
-            html,
-            peer_report,
+        _validate_outputs(
+            stdio_artifact,
+            stdio_junit,
+            stdio_sarif,
+            stdio_html,
             package_version,
+            transport="stdio",
+            cleanup={"server_reaped": True, "server_returncode": 0},
         )
-        if _pid_exists(pid, cwd=work, environment=environment):
-            _stop_pid(pid)
-            raise AcceptanceError(f"controlled peer process {pid} is still running")
-        if check.returncode != 0:
+        stdio_pid = _validate_stdio_peer(stdio_peer_report)
+        if _pid_exists(stdio_pid, cwd=work, environment=environment):
             raise AcceptanceError(
-                f"clean wheel stdio check exited with status {check.returncode}"
+                f"controlled stdio peer process {stdio_pid} is still running"
+            )
+        if stdio_check.returncode != 0:
+            raise AcceptanceError(
+                f"clean wheel stdio check exited with status {stdio_check.returncode}"
+            )
+
+        secret_variable = "MCP_STATECHECK_M4_TOKEN"
+        http_secret = secrets.token_urlsafe(32)
+        http_environment = {**environment, secret_variable: http_secret}
+        http_artifact = reports / "http.json"
+        http_junit = reports / "http.xml"
+        http_sarif = reports / "http.sarif"
+        http_html = reports / "http.html"
+        http_ready = reports / "http-ready.json"
+        http_peer_report = reports / "http-peer.json"
+        http_peer = _start_http_peer(
+            [
+                wheel_python,
+                peer_fixture,
+                "--http",
+                "--mode",
+                "sdk-smoke",
+                "--protocol-version",
+                PROTOCOL_VERSION,
+                "--ready",
+                http_ready,
+                "--report",
+                http_peer_report,
+                "--authorization-env",
+                secret_variable,
+            ],
+            cwd=work,
+            environment=http_environment,
+        )
+        http_peer_pid: int | None = None
+        try:
+            http_url, http_host, http_port, http_peer_pid = _wait_for_http_peer(
+                http_ready,
+                http_peer,
+            )
+            http_check = _run(
+                [
+                    wheel_console,
+                    "check",
+                    "--url",
+                    http_url,
+                    "--header-env",
+                    f"Authorization={secret_variable}",
+                    "--timeout",
+                    "5",
+                    "--output",
+                    http_artifact,
+                    "--junit",
+                    http_junit,
+                    "--sarif",
+                    http_sarif,
+                    "--html",
+                    http_html,
+                ],
+                cwd=work,
+                environment=http_environment,
+                timeout=TIMEOUTS["check"],
+                label="clean wheel Streamable HTTP check",
+                expected=(0, 1, 2),
+            )
+        finally:
+            http_peer_stdout, http_peer_stderr = _finish_http_peer(
+                http_peer,
+                peer_pid=http_peer_pid,
+                cwd=work,
+                environment=http_environment,
+            )
+
+        assert http_peer_pid is not None
+        _validate_outputs(
+            http_artifact,
+            http_junit,
+            http_sarif,
+            http_html,
+            package_version,
+            transport="streamable-http",
+            cleanup={"client_closed": True},
+        )
+        _validate_http_peer(http_peer_report, http_peer_pid)
+        if _pid_exists(http_peer_pid, cwd=work, environment=http_environment):
+            raise AcceptanceError(
+                f"controlled HTTP peer process {http_peer_pid} is still running"
+            )
+        if _listener_accepts(http_host, http_port):
+            raise AcceptanceError("controlled HTTP peer listener is still accepting")
+        _assert_secret_absent(
+            http_secret,
+            [
+                http_artifact,
+                http_junit,
+                http_sarif,
+                http_html,
+                http_ready,
+                http_peer_report,
+            ],
+            [
+                http_check.stdout,
+                http_check.stderr,
+                http_peer_stdout,
+                http_peer_stderr,
+            ],
+        )
+        if http_check.returncode != 0:
+            raise AcceptanceError(
+                "clean wheel Streamable HTTP check exited with status "
+                f"{http_check.returncode}"
             )
 
         return {
@@ -442,6 +730,7 @@ def _accept() -> dict[str, object]:
             },
             "clean_installs": ["sdist", "wheel"],
             "console_versions": versions,
+            "import_origins": import_origins,
             "pythonpath_cleared": True,
             "source_tree_outside_cwd": True,
             "stdio": {
@@ -449,6 +738,16 @@ def _accept() -> dict[str, object]:
                 "peer_clean_exit": True,
                 "peer_reaped": True,
                 "protocol_version": PROTOCOL_VERSION,
+                "status": "passed",
+            },
+            "streamable_http": {
+                "authorization_secret_absent": True,
+                "fixture": "sdk-smoke",
+                "listener_closed": True,
+                "peer_clean_exit": True,
+                "peer_reaped": True,
+                "protocol_version": PROTOCOL_VERSION,
+                "session_deleted": True,
                 "status": "passed",
             },
             "reports": ["html", "json", "junit", "sarif"],
@@ -481,8 +780,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(summary["error"], file=sys.stderr)
     else:
         print(
-            "M4 acceptance passed: clean wheel and sdist installs, stdio check, "
-            f"and four report formats; wrote {args.output}"
+            "M4 acceptance passed: clean wheel and sdist installs, real stdio "
+            "and Streamable HTTP checks, and four report formats per transport; "
+            f"wrote {args.output}"
         )
     return returncode
 

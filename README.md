@@ -54,7 +54,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
 | Installed CLI | Explicit-target stdio and Streamable HTTP quick checks with `0`/`1`/`2` exit codes |
 | Reports | Deterministic JSON, JUnit XML, SARIF 2.1.0, and a script-free single-file HTML trace explorer |
-| Automation | A JSON-argv composite Action plus a scheduled macOS run of the full real SDK matrix |
+| Automation | A JSON-argv composite Action plus scheduled macOS runs of the full SDK matrix and clean-package acceptance |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
 | M3 real SDK clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions and both transports, with 16/16 cells checked against saved traces |
@@ -225,8 +225,11 @@ Until the first release tag exists, pin a reviewed commit instead of `main` in
 security-sensitive workflows.
 
 The clean-package acceptance command builds both distributions, installs them
-outside the source tree, exercises the actual console script against a real
-stdio peer, and parses all four outputs:
+outside the source tree, and verifies their import origins. It exercises the
+wheel's actual console script against real stdio and localhost Streamable HTTP
+peers, parses all four outputs for each transport, proves HTTP session deletion
+and listener/process cleanup, and checks that a runtime authorization secret
+does not reach artifacts or process output:
 
 ```console
 uv run python scripts/run_m4_acceptance.py
