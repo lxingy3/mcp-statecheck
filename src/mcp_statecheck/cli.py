@@ -43,6 +43,7 @@ from .transports import (
 
 DEFAULT_PROTOCOL_VERSION = PROTOCOL_VERSIONS[-1]
 DEFAULT_ARTIFACT = Path("artifacts/run.json")
+DEFAULT_MATRIX_OUTPUT = Path("artifacts/matrix")
 _HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _HEADER_VALUE = re.compile(r"^[\t\x20-\x7e]+$")
 
@@ -102,6 +103,18 @@ def _parser() -> argparse.ArgumentParser:
     report.add_argument("artifact", type=Path)
     report.add_argument("--json", type=Path, metavar="PATH")
     _add_report_outputs(report)
+
+    matrix = subparsers.add_parser(
+        "matrix",
+        help="run the locked Python and TypeScript SDK transport matrix",
+    )
+    matrix.add_argument("config", nargs="?", type=Path)
+    matrix.add_argument("--output", type=Path, default=DEFAULT_MATRIX_OUTPUT)
+    matrix.add_argument(
+        "--check",
+        action="store_true",
+        help="compare generated traces with the explicit output directory",
+    )
     return parser
 
 
@@ -740,6 +753,35 @@ def _run_report(
     }[artifact_status(artifact)]
 
 
+def _run_matrix(args: argparse.Namespace) -> int:
+    from .matrix import (
+        MatrixError,
+        MatrixFailure,
+        check_matrix,
+        run_matrix,
+    )
+
+    try:
+        if args.check:
+            check_matrix(args.config, args.output)
+        else:
+            written = run_matrix(args.config, args.output)
+    except MatrixFailure as exc:
+        print(
+            f"Matrix found a compatibility failure: {_safe_message(exc)}",
+            file=sys.stderr,
+        )
+        return 1
+    except MatrixError as exc:
+        print(f"mcp-statecheck: {_safe_message(exc)}", file=sys.stderr)
+        return 2
+    if args.check:
+        print("Matrix passed: 16/16 locked SDK transport cells match artifacts")
+    else:
+        print(f"Matrix passed: wrote {len(written)} locked SDK transport traces")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -747,6 +789,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_check(args, parser)
     if args.subcommand == "report":
         return _run_report(args, parser)
+    if args.subcommand == "matrix":
+        return _run_matrix(args)
     raise AssertionError(f"unhandled subcommand: {args.subcommand}")
 
 

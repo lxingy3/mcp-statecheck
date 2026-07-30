@@ -8,13 +8,13 @@ from typing import Any
 import anyio
 import pytest
 
+from mcp_statecheck._controlled_peer import ControlledHTTPPeer, PeerState
 from mcp_statecheck.trace import TraceRecorder
 from mcp_statecheck.transports import (
     ServerError,
     StdioTransport,
     StreamableHTTPTransport,
 )
-from tests.fixtures.peer import ControlledHTTPPeer, PeerState
 
 FIXTURE_PEER = Path(__file__).parent / "fixtures" / "peer.py"
 PROTOCOL_VERSION = "2025-11-25"

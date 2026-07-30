@@ -35,6 +35,12 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_statecheck"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"benchmarks/mcp-v2.toml" = "mcp_statecheck/benchmarks/mcp-v2.toml"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/.hypothesis"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

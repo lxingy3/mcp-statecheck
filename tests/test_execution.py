@@ -9,6 +9,10 @@ import httpx
 import pytest
 
 import mcp_statecheck.execution as execution_module
+from mcp_statecheck._controlled_peer import (
+    ControlledHTTPPeer,
+    execute_controlled_http_fault,
+)
 from mcp_statecheck.execution import (
     ExecutionProtocolError,
     execute_http,
@@ -16,10 +20,6 @@ from mcp_statecheck.execution import (
 )
 from mcp_statecheck.model import Action, ActionKind
 from mcp_statecheck.transports.streamable_http import StreamableHTTPTransport
-from tests.fixtures.peer import (
-    ControlledHTTPPeer,
-    execute_controlled_http_fault,
-)
 
 PEER = Path(__file__).parent / "fixtures" / "peer.py"
 

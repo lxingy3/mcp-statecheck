@@ -15,6 +15,15 @@
     "sdist": "isolated",
     "wheel": "isolated"
   },
+  "matrix": {
+    "cells": 16,
+    "config": "bundled",
+    "golden_match": true,
+    "package_owned": true,
+    "resources_unchanged": true,
+    "sdist_assets": "probed",
+    "status": "passed"
+  },
   "milestone": "M4",
   "package_version": "0.1.0.dev0",
   "python": "3.12.13",
@@ -49,6 +58,7 @@
     "build": 180,
     "check": 30,
     "install": 180,
+    "matrix": 420,
     "peer_ready": 10,
     "peer_stop": 10,
     "process_probe": 10,

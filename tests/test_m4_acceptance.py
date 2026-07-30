@@ -70,6 +70,28 @@ def test_http_peer_validator_requires_independent_cleanup(tmp_path: Path) -> Non
         run_m4_acceptance._validate_http_peer(report, 123)
 
 
+def test_installed_matrix_must_match_the_exact_16_golden_files(
+    tmp_path: Path,
+) -> None:
+    actual = tmp_path / "actual"
+    expected = tmp_path / "expected"
+    for index in range(16):
+        relative = Path("transport") / f"{index}.json"
+        for root in (actual, expected):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"{index}\n", encoding="utf-8")
+
+    assert run_m4_acceptance._validate_matrix_outputs(actual, expected) == 16
+
+    (actual / "transport" / "15.json").write_text("stale\n", encoding="utf-8")
+    with pytest.raises(
+        run_m4_acceptance.AcceptanceError,
+        match="differs from golden",
+    ):
+        run_m4_acceptance._validate_matrix_outputs(actual, expected)
+
+
 def test_windows_tree_cleanup_falls_back_for_launcher_and_peer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

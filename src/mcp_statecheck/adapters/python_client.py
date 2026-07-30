@@ -211,7 +211,26 @@ def main() -> int:
             raise RuntimeError(
                 f"loaded mcp {actual_sdk_version}, expected {expected_sdk_version}"
             )
+    except Exception as exc:
+        print(f"python SDK adapter setup failed: {exc}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        return 2
+
+    try:
         events = anyio.run(_run, transport, target, actions)
+    except Exception as exc:
+        message = str(exc) or type(exc).__name__
+        response = Envelope(
+            command_id=envelope.command_id,
+            kind="failure",
+            payload={
+                "error_type": type(exc).__name__,
+                "message": message,
+                "runner_id": runner_id,
+            },
+        )
+        print(f"python SDK cell failed: {message}", file=sys.stderr, flush=True)
+    else:
         response = Envelope(
             command_id=envelope.command_id,
             kind="result",
@@ -223,13 +242,9 @@ def main() -> int:
                 "sdk_version": actual_sdk_version,
             },
         )
-        sys.stdout.write(dumps_line(response))
-        sys.stdout.flush()
-        return 0
-    except Exception as exc:
-        print(f"python SDK adapter failed: {exc}", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
-        return 2
+    sys.stdout.write(dumps_line(response))
+    sys.stdout.flush()
+    return 0
 
 
 if __name__ == "__main__":

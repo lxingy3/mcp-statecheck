@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 
 import anyio
 
+from mcp_statecheck._controlled_peer import execute_controlled_http_fault
 from mcp_statecheck.fixtures import (
     FIXTURES,
     HTTP_ERROR_FIXTURE_ID,
@@ -34,7 +35,6 @@ from mcp_statecheck.stateful import (
 from mcp_statecheck.trace import TraceRecorder
 
 ROOT = Path(__file__).resolve().parents[1]
-PEER = ROOT / "tests" / "fixtures" / "peer.py"
 DEFAULT_FIXTURE_ID = "request-before-initialized"
 M2_FIXTURE_IDS = tuple(fixture.fixture_id for fixture in FIXTURES)
 DEFAULT_OUTPUTS = {
@@ -56,10 +56,6 @@ def _controlled_http_executor(fixture_id: str):
         actions: tuple[Action, ...],
         timeout: float,
     ):
-        if str(ROOT) not in sys.path:
-            sys.path.insert(0, str(ROOT))
-        from tests.fixtures.peer import execute_controlled_http_fault
-
         return await execute_controlled_http_fault(actions, fixture_id, timeout)
 
     return execute
@@ -68,7 +64,8 @@ def _controlled_http_executor(fixture_id: str):
 def _peer_command(fixture_id: str) -> tuple[str, ...]:
     return (
         sys.executable,
-        str(PEER),
+        "-m",
+        "mcp_statecheck._controlled_peer",
         "--stdio",
         "--mode",
         fixture_id,

@@ -8,13 +8,13 @@ import anyio
 import httpx
 import pytest
 
+from mcp_statecheck._controlled_peer import INITIALIZE_RESULT
 from mcp_statecheck.transports import (
     HTTPProtocolError,
     HTTPTimeout,
     HTTPTransportError,
     StreamableHTTPTransport,
 )
-from tests.fixtures.peer import INITIALIZE_RESULT
 
 
 class OneThenStall(httpx.AsyncByteStream):

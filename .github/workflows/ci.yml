@@ -45,11 +45,8 @@ jobs:
       - name: Run M2 SSE resume slice
         timeout-minutes: 4
         run: uv run python scripts/run_m2_slice.py --fixture second-sse-resume-token-loss --output "${{ runner.temp }}/m2/second-sse-resume-token-loss.json"
-      - name: Run M3 real SDK client transport matrix
-        timeout-minutes: 20
-        run: uv run python scripts/run_m3_client_matrix.py --check
       - name: Run clean-package M4 acceptance
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: >-
           uv run python scripts/run_m4_acceptance.py
           --output "${{ runner.temp }}/m4/acceptance.json"
@@ -60,7 +57,8 @@ jobs:
         with:
           arguments: >-
             ["check", "--output", "m4-action-artifact.json", "--stdio", "--",
-            "python", "tests/fixtures/peer.py", "--stdio", "--mode", "sdk-smoke"]
+            "python", "-m", "mcp_statecheck._controlled_peer",
+            "--stdio", "--mode", "sdk-smoke"]
 
   secret-scan:
     runs-on: ubuntu-latest

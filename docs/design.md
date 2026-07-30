@@ -157,14 +157,14 @@ command recreates all 16 cells in a temporary directory and compares them byte
 for byte with the saved artifacts:
 
 ```console
-uv run python scripts/run_m3_client_matrix.py --check
+uv run python scripts/run_m3_client_matrix.py --check --output artifacts/m3
 ```
 
 The result is 16/16 client transport cells. This closes M3.
 
 ## M4 implementation status
 
-The first M4 slice exposes two installed commands:
+The current M4 slice exposes three installed commands:
 
 - `check` runs one bounded session smoke profile over an explicitly
   named stdio command or Streamable HTTP URL. It initializes, sends the
@@ -173,8 +173,11 @@ The first M4 slice exposes two installed commands:
 - `report` validates and redacts an existing schema v1 artifact before
   projecting it to canonical JSON, JUnit XML, SARIF 2.1.0, or a script-free
   single-file HTML trace explorer.
+- `matrix` runs the locked Python/TypeScript v1/v2 clients across both protocol
+  revisions and transports. It uses the bundled canonical benchmark unless the
+  caller provides an explicit config.
 
-Both commands use the same `0`/`1`/`2` contract: no detected issue, protocol or
+All three commands use the same `0`/`1`/`2` contract: no detected issue, protocol or
 differential failure, and configuration or infrastructure error. Report
 outputs are written before a saved failure returns `1`. Source and output path
 collisions are rejected so report generation cannot overwrite the only JSON
@@ -202,14 +205,20 @@ and calls the same CLI without shell interpolation. Pull request CI covers
 Ubuntu and Windows, including isolated wheel/sdist imports, installed-console
 stdio and localhost Streamable HTTP checks, four report formats per transport,
 independent HTTP session/listener/process cleanup evidence, and the local
-Action. A scheduled macOS workflow runs the complete 16-cell real SDK matrix
-and the same clean-package acceptance.
+Action. The same clean-package gate runs on scheduled macOS CI. Its installed
+matrix execution replaces a duplicate source-tree matrix run.
 
-Installed `matrix`, `replay`, and `deep` commands are deliberately absent from
-this slice. The current M2/M3 harnesses depend on repository-owned controlled
-peers and runner assets; those must move behind package-owned APIs before the
-commands can work from a wheel. The M2 fault-injection state machines are not a
-safe substitute for testing an arbitrary server.
+The controlled peer, matrix orchestrator, adapters, manifests, lockfiles, and
+canonical benchmark are package-owned. Matrix preparation copies only the
+allowlisted adapter and runner inputs into a temporary workspace before
+`uv sync` or `npm ci`; clean-package acceptance probes the sdist assets and
+hashes package resources before and after execution to prove they remain
+unchanged.
+
+Installed `replay` and `deep` commands are deliberately absent from this slice.
+Artifacts do not yet carry an allowlisted, versioned target recipe, and the M2
+fault-injection state machines are not a safe substitute for testing an
+arbitrary server.
 
 ## v0.1 release gate
 

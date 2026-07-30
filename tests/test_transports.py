@@ -9,6 +9,7 @@ import anyio
 import httpx
 import pytest
 
+from mcp_statecheck._controlled_peer import INITIALIZE_RESULT, ControlledHTTPPeer
 from mcp_statecheck.transports import (
     Forbidden,
     HTTPProtocolError,
@@ -23,7 +24,6 @@ from mcp_statecheck.transports import (
     StreamableHTTPTransport,
     Unauthorized,
 )
-from tests.fixtures.peer import INITIALIZE_RESULT, ControlledHTTPPeer
 
 
 class ChunkStream(httpx.AsyncByteStream):

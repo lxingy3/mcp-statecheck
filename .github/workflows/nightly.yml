@@ -25,13 +25,8 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12.13"
-      - name: Check the full real SDK client matrix
-        timeout-minutes: 25
-        run: >-
-          uv run --locked --no-dev python
-          scripts/run_m3_client_matrix.py --check
       - name: Run clean-package M4 acceptance
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: >-
           uv run --locked --no-dev python
           scripts/run_m4_acceptance.py

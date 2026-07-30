@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import secrets
@@ -12,10 +13,12 @@ import signal
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import tomllib
 import xml.etree.ElementTree as ET
+import zipfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -29,11 +32,31 @@ TIMEOUTS = {
     "build": 180,
     "venv": 120,
     "install": 180,
+    "matrix": 420,
     "version": 15,
     "check": 30,
     "peer_ready": 10,
     "peer_stop": 10,
     "process_probe": 10,
+}
+MATRIX_PACKAGE_ASSETS = {
+    "__init__.py",
+    "_controlled_peer.py",
+    "adapters/__init__.py",
+    "adapters/jsonl.py",
+    "adapters/python/v1/pyproject.toml",
+    "adapters/python/v1/uv.lock",
+    "adapters/python/v2/pyproject.toml",
+    "adapters/python/v2/uv.lock",
+    "adapters/python_client.py",
+    "adapters/typescript/v1/package-lock.json",
+    "adapters/typescript/v1/package.json",
+    "adapters/typescript/v2/package-lock.json",
+    "adapters/typescript/v2/package.json",
+    "adapters/typescript_client.mts",
+    "benchmarks/mcp-v2.toml",
+    "matrix.py",
+    "model.py",
 }
 
 
@@ -135,6 +158,103 @@ def _one(directory: Path, pattern: str, label: str) -> Path:
     if len(matches) != 1:
         raise AcceptanceError(f"expected one {label}, found {len(matches)}")
     return matches[0]
+
+
+def _validate_wheel_assets(wheel: Path) -> None:
+    required = {f"mcp_statecheck/{path}" for path in MATRIX_PACKAGE_ASSETS}
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            names = set(archive.namelist())
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise AcceptanceError("wheel archive could not be inspected") from exc
+    missing = required - names
+    if missing:
+        raise AcceptanceError(
+            "wheel is missing matrix assets: " + ", ".join(sorted(missing))
+        )
+    if any(
+        part in name
+        for name in names
+        for part in ("/.venv/", "/node_modules/", "/.hypothesis/")
+    ):
+        raise AcceptanceError("wheel contains a generated dependency or test cache")
+
+
+def _validate_sdist_assets(sdist: Path) -> None:
+    required_suffixes = {
+        *{
+            f"/src/mcp_statecheck/{path}"
+            for path in MATRIX_PACKAGE_ASSETS
+            if path != "benchmarks/mcp-v2.toml"
+        },
+        "/benchmarks/mcp-v2.toml",
+    }
+    try:
+        with tarfile.open(sdist, "r:gz") as archive:
+            names = tuple(archive.getnames())
+    except (OSError, tarfile.TarError) as exc:
+        raise AcceptanceError("sdist archive could not be inspected") from exc
+    missing = {
+        suffix
+        for suffix in required_suffixes
+        if not any(name.endswith(suffix) for name in names)
+    }
+    if missing:
+        raise AcceptanceError(
+            "sdist is missing matrix assets: " + ", ".join(sorted(missing))
+        )
+    if any(
+        part in f"/{name}/"
+        for name in names
+        for part in ("/.hypothesis/", "/.venv/", "/node_modules/")
+    ):
+        raise AcceptanceError("sdist contains a generated dependency or test cache")
+
+
+def _package_asset_hashes(package_root: Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for relative in sorted(MATRIX_PACKAGE_ASSETS):
+        path = package_root / relative
+        try:
+            content = path.read_bytes()
+        except OSError as exc:
+            raise AcceptanceError(
+                f"installed matrix asset could not be read: {relative}"
+            ) from exc
+        hashes[relative] = hashlib.sha256(content).hexdigest()
+    return hashes
+
+
+def _probe_installed_matrix_assets(
+    python: Path,
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+) -> None:
+    probe = (
+        "from pathlib import Path;"
+        "from tempfile import TemporaryDirectory;"
+        "from mcp_statecheck.matrix import "
+        "_default_config,_load_runners,_materialize_runtime;"
+        "temporary=TemporaryDirectory(prefix='mcp-statecheck-sdist-probe-');"
+        "runtime=_materialize_runtime(Path(temporary.name));"
+        "assert len(_load_runners(_default_config()))==4;"
+        "assert runtime.import_root.is_dir();"
+        "assert runtime.typescript_runner.is_file();"
+        "temporary.cleanup();"
+        "print('sdist matrix assets passed')"
+    )
+    completed = _run(
+        [python, "-c", probe],
+        cwd=cwd,
+        environment=environment,
+        timeout=TIMEOUTS["version"],
+        label="clean sdist matrix asset probe",
+    )
+    if completed.stdout.strip() != "sdist matrix assets passed":
+        raise AcceptanceError(
+            "clean sdist matrix asset probe printed unexpected output"
+        )
 
 
 def _venv_executables(directory: Path) -> tuple[Path, Path]:
@@ -431,6 +551,22 @@ def _assert_secret_absent(
         raise AcceptanceError("HTTP secret leaked into process output")
 
 
+def _validate_matrix_outputs(actual: Path, expected: Path) -> int:
+    actual_paths = tuple(sorted(actual.rglob("*.json")))
+    expected_paths = tuple(sorted(expected.rglob("*.json")))
+    actual_names = {path.relative_to(actual) for path in actual_paths}
+    expected_names = {path.relative_to(expected) for path in expected_paths}
+    if len(actual_paths) != 16 or actual_names != expected_names:
+        raise AcceptanceError("installed matrix did not write the exact 16-cell set")
+    for path in actual_paths:
+        golden = expected / path.relative_to(actual)
+        if path.read_bytes() != golden.read_bytes():
+            raise AcceptanceError(
+                f"installed matrix trace differs from golden: {path.relative_to(actual)}"
+            )
+    return len(actual_paths)
+
+
 def _atomic_write(path: Path, value: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -483,9 +619,12 @@ def _accept() -> dict[str, object]:
             )
         wheel = _one(distributions, "mcp_statecheck-*.whl", "wheel")
         sdist = _one(distributions, "mcp_statecheck-*.tar.gz", "sdist")
+        _validate_wheel_assets(wheel)
+        _validate_sdist_assets(sdist)
 
         installs: dict[str, tuple[Path, Path]] = {}
         import_origins: dict[str, str] = {}
+        package_roots: dict[str, Path] = {}
         versions: dict[str, str] = {}
         for kind, distribution in (("wheel", wheel), ("sdist", sdist)):
             venv = work / f"{kind}-venv"
@@ -550,7 +689,19 @@ def _accept() -> dict[str, object]:
                 )
             installs[kind] = (python, console)
             import_origins[kind] = "isolated"
+            package_roots[kind] = origin.parent
             versions[kind] = version
+
+        initial_asset_hashes = {
+            kind: _package_asset_hashes(package_root)
+            for kind, package_root in package_roots.items()
+        }
+        sdist_python, _ = installs["sdist"]
+        _probe_installed_matrix_assets(
+            sdist_python,
+            cwd=work,
+            environment=environment,
+        )
 
         reports = work / "reports"
         stdio_artifact = reports / "stdio.json"
@@ -558,7 +709,6 @@ def _accept() -> dict[str, object]:
         stdio_sarif = reports / "stdio.sarif"
         stdio_html = reports / "stdio.html"
         stdio_peer_report = reports / "stdio-peer.json"
-        peer_fixture = (ROOT / "tests" / "fixtures" / "peer.py").resolve()
         wheel_python, wheel_console = installs["wheel"]
         stdio_check = _run(
             [
@@ -577,7 +727,8 @@ def _accept() -> dict[str, object]:
                 stdio_html,
                 "--",
                 wheel_python,
-                peer_fixture,
+                "-m",
+                "mcp_statecheck._controlled_peer",
                 "--stdio",
                 "--mode",
                 "sdk-smoke",
@@ -623,7 +774,8 @@ def _accept() -> dict[str, object]:
         http_peer = _start_http_peer(
             [
                 wheel_python,
-                peer_fixture,
+                "-m",
+                "mcp_statecheck._controlled_peer",
                 "--http",
                 "--mode",
                 "sdk-smoke",
@@ -718,6 +870,45 @@ def _accept() -> dict[str, object]:
                 f"{http_check.returncode}"
             )
 
+        consumer = work / "empty-consumer"
+        consumer.mkdir()
+        matrix_output = work / "matrix-output"
+        matrix_run = _run(
+            [
+                wheel_console,
+                "matrix",
+                "--output",
+                matrix_output,
+            ],
+            cwd=consumer,
+            environment=environment,
+            timeout=TIMEOUTS["matrix"],
+            label="clean wheel SDK transport matrix",
+        )
+        matrix_cells = _validate_matrix_outputs(
+            matrix_output,
+            ROOT / "artifacts" / "m3",
+        )
+        if tuple(consumer.iterdir()):
+            raise AcceptanceError(
+                "installed matrix wrote into its empty working directory"
+            )
+        if matrix_run.stdout.strip() != (
+            "Matrix passed: wrote 16 locked SDK transport traces"
+        ):
+            raise AcceptanceError("installed matrix printed an unexpected result")
+        for kind, package_root in package_roots.items():
+            if _package_asset_hashes(package_root) != initial_asset_hashes[kind]:
+                raise AcceptanceError(
+                    f"installed {kind} matrix modified a package resource"
+                )
+            if tuple(package_root.rglob(".venv")) or tuple(
+                package_root.rglob("node_modules")
+            ):
+                raise AcceptanceError(
+                    f"installed {kind} matrix created dependencies in package resources"
+                )
+
         return {
             "schema_version": 1,
             "milestone": "M4",
@@ -731,6 +922,15 @@ def _accept() -> dict[str, object]:
             "clean_installs": ["sdist", "wheel"],
             "console_versions": versions,
             "import_origins": import_origins,
+            "matrix": {
+                "cells": matrix_cells,
+                "config": "bundled",
+                "golden_match": True,
+                "package_owned": True,
+                "resources_unchanged": True,
+                "sdist_assets": "probed",
+                "status": "passed",
+            },
             "pythonpath_cleared": True,
             "source_tree_outside_cwd": True,
             "stdio": {
@@ -781,7 +981,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         print(
             "M4 acceptance passed: clean wheel and sdist installs, real stdio "
-            "and Streamable HTTP checks, and four report formats per transport; "
+            "and Streamable HTTP checks, 16 installed matrix cells, and four "
+            "report formats per transport; "
             f"wrote {args.output}"
         )
     return returncode

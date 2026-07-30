@@ -13,9 +13,9 @@ wire behavior as deterministic, redacted traces.
 > [!NOTE]
 > This project is pre-alpha. M0-M3 are complete, and the first M4 slice now
 > provides an installable quick-check CLI, deterministic offline reports, a
-> composite Action, and macOS nightly coverage. The installed matrix and replay
-> commands, final release audit, GitHub Release, and PyPI publication remain
-> blocked.
+> package-owned SDK matrix, a composite Action, and macOS nightly coverage.
+> Replay, deep profiles, the final release audit, GitHub Release, and PyPI
+> publication remain blocked.
 
 ## Quickstart
 
@@ -24,8 +24,8 @@ From a fresh checkout with [uv](https://docs.astral.sh/uv/) installed:
 ```console
 git clone https://github.com/lxingy3/mcp-statecheck.git
 cd mcp-statecheck
-uv tool install .
-mcp-statecheck check --output artifacts/quickstart.json --junit artifacts/quickstart.xml --sarif artifacts/quickstart.sarif --html artifacts/quickstart.html --stdio -- python tests/fixtures/peer.py --stdio --mode sdk-smoke
+uv sync --locked
+uv run mcp-statecheck check --output artifacts/quickstart.json --junit artifacts/quickstart.xml --sarif artifacts/quickstart.sarif --html artifacts/quickstart.html --stdio -- uv run python -m mcp_statecheck._controlled_peer --stdio --mode sdk-smoke
 Check passed: wrote artifacts/quickstart.json
 ```
 
@@ -52,7 +52,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | stdio | JSON Lines subprocess transport with deadlines, bounded stderr, and child cleanup |
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
-| Installed CLI | Explicit-target stdio and Streamable HTTP quick checks with `0`/`1`/`2` exit codes |
+| Installed CLI | Explicit-target checks, offline reports, and the locked 16-cell SDK matrix with `0`/`1`/`2` exit codes |
 | Reports | Deterministic JSON, JUnit XML, SARIF 2.1.0, and a script-free single-file HTML trace explorer |
 | Automation | A JSON-argv composite Action plus scheduled macOS runs of the full SDK matrix and clean-package acceptance |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
@@ -180,8 +180,15 @@ npm dependencies:
 | `typescript-v2` | `@modelcontextprotocol/client 2.0.0` | [stdio](artifacts/m3/stdio/typescript-v2-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/typescript-v2-2025-06-18.json) | [stdio](artifacts/m3/stdio/typescript-v2-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/typescript-v2-2025-11-25.json) |
 
 ```console
-$ uv run python scripts/run_m3_client_matrix.py --check
-M3 client matrix passed: 16/16 real SDK transport cells match artifacts
+$ uv run python scripts/run_m3_client_matrix.py --check --output artifacts/m3
+Matrix passed: 16/16 locked SDK transport cells match artifacts
+```
+
+The installed command uses the bundled canonical benchmark by default:
+
+```console
+$ mcp-statecheck matrix --output artifacts/matrix
+Matrix passed: wrote 16 locked SDK transport traces
 ```
 
 Each runner performs initialization, ping, tool discovery, and one `echo` tool
@@ -228,8 +235,11 @@ The clean-package acceptance command builds both distributions, installs them
 outside the source tree, and verifies their import origins. It exercises the
 wheel's actual console script against real stdio and localhost Streamable HTTP
 peers, parses all four outputs for each transport, proves HTTP session deletion
-and listener/process cleanup, and checks that a runtime authorization secret
-does not reach artifacts or process output:
+and listener/process cleanup, probes the sdist-installed matrix assets, runs the
+wheel-installed 16-cell SDK matrix from an empty directory, compares every trace
+with the checked-in goldens, verifies package resources remain byte-identical,
+and checks that a runtime authorization secret does not reach artifacts or
+process output:
 
 ```console
 uv run python scripts/run_m4_acceptance.py
@@ -247,10 +257,12 @@ rather than replacing it.
 Schema lockfiles, API compatibility checks, and protocols other than MCP are
 outside the v0.1 scope.
 
-The installed CLI currently exposes the bounded `check` and `report` commands.
-The M2 replay corpus and M3 matrix remain reproducible repository harnesses
-until their controlled peers and runner assets move behind package-owned APIs.
-No `deep`, `matrix`, or `replay` command is registered as a placeholder.
+The installed CLI exposes the bounded `check`, `report`, and `matrix` commands.
+The matrix copies only its allowlisted adapter and runner inputs into a
+temporary workspace before preparing isolated SDK environments; it never
+installs into package resources. The M2 replay corpus remains a repository
+harness until its artifacts carry an allowlisted, versioned target recipe. No
+`deep` or `replay` command is registered as a placeholder.
 
 ## Roadmap
 

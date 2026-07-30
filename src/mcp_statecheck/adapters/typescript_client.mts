@@ -16,6 +16,7 @@ const expectedActions = [
 ];
 const actionFields =
   "action_id,capabilities,kind,mcp_request_id,method,payload,protocol_version,resume_token,stream_id,target_action_id";
+let activeCell;
 
 function fail(condition, message) {
   if (!condition) throw new Error(message);
@@ -109,6 +110,10 @@ async function main() {
   const packagePath = join(environmentRoot, "node_modules", ...packageName.split("/"), "package.json");
   const actualSdkVersion = JSON.parse(readFileSync(packagePath, "utf8")).version;
   fail(actualSdkVersion === payload.sdk_version, `loaded ${packageName} ${actualSdkVersion}, expected ${payload.sdk_version}`);
+  activeCell = {
+    command_id: envelope.command_id,
+    runner_id: payload.runner_id,
+  };
 
   const clientModule = requireFromEnvironment(
     isV1 ? "@modelcontextprotocol/sdk/client/index.js" : "@modelcontextprotocol/client",
@@ -209,6 +214,23 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`TypeScript SDK adapter failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  const errorType = error instanceof Error ? error.constructor.name : typeof error;
+  const message =
+    (error instanceof Error ? error.message : String(error)) || errorType;
+  if (activeCell) {
+    process.stdout.write(`${JSON.stringify({
+      command_id: activeCell.command_id,
+      kind: "failure",
+      payload: {
+        error_type: errorType,
+        message,
+        runner_id: activeCell.runner_id,
+      },
+      schema_version: 1,
+    })}\n`);
+    process.stderr.write(`TypeScript SDK cell failed: ${message}\n`);
+    return;
+  }
+  process.stderr.write(`TypeScript SDK adapter setup failed: ${message}\n`);
   process.exitCode = 2;
 });
