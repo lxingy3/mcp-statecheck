@@ -1,0 +1,11 @@
+{
+  "name": "mcp-statecheck-server-everything-canary",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "node": "24.14.1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server-everything": "2026.7.4"
+  }
+}

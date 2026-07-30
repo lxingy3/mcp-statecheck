@@ -50,6 +50,12 @@ jobs:
         run: >-
           uv run python scripts/run_m4_acceptance.py
           --output "${{ runner.temp }}/m4/acceptance.json"
+      - name: Run pinned external server canary
+        timeout-minutes: 5
+        run: >-
+          uv run python scripts/run_m5_external_canary.py
+          --check
+          --output "${{ runner.temp }}/m5"
       - name: Smoke test the local Action
         uses: ./
         env:

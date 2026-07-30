@@ -1,0 +1,41 @@
+{
+  "cleanup": {
+    "server_reaped": 10,
+    "server_returncode_zero": 10
+  },
+  "milestone": "M5",
+  "package_lock_sha256": "005aeb8bea7517b9c13ec79aa0442091ef12a9ed755be0db514528e01c20b0f6",
+  "protocol_version": "2025-11-25",
+  "responses": {
+    "initialize": 10,
+    "ping": 10,
+    "tools_list": 10
+  },
+  "runs": {
+    "attempted": 10,
+    "byte_identical": true,
+    "passed": 10
+  },
+  "runtime": {
+    "mcp_statecheck": "0.1.0",
+    "node": "24.14.1",
+    "npm": "11.11.0",
+    "python": "3.12.13"
+  },
+  "schema_version": 1,
+  "slice": "pinned-external-server-canary",
+  "status": "passed",
+  "target": {
+    "integrity": "sha512-ydMW/M6rk9tK23b+U38trsNLHhd5eF+ntiv2Vr+RPMDhbiKY/IKrZU25ukvSXVPUBvy7TxTPWpeV4KcYcXg72w==",
+    "name": "@modelcontextprotocol/server-everything",
+    "version": "2026.7.4"
+  },
+  "trace": {
+    "file": "server-everything-2026.7.4-stdio.json",
+    "sha256": "c26a6b70b4f3a229505582965efa4c9d63c02b679efb337721e78166422d55b5",
+    "sha256_counts": {
+      "c26a6b70b4f3a229505582965efa4c9d63c02b679efb337721e78166422d55b5": 10
+    }
+  },
+  "transport": "stdio"
+}

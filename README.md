@@ -254,6 +254,28 @@ artifacts or process output:
 uv run python scripts/run_m4_acceptance.py
 ```
 
+## External server canary
+
+M5 starts with one deliberately narrow external canary. The repository pins
+`@modelcontextprotocol/server-everything` and its full npm dependency graph,
+installs it with lifecycle scripts disabled, then runs the existing
+`2025-11-25` stdio quick check against ten fresh direct Node processes:
+
+```console
+uv run python scripts/run_m5_external_canary.py --check
+```
+
+The ten complete artifacts must be byte-identical, each protocol exchange must
+pass `initialize`, `ping`, and `tools/list`, and each direct server process must
+exit with status `0` and be reaped. The external process receives an isolated
+home, temporary directory, npm cache, and a minimal environment that excludes
+host credentials. CI repeats the same locked check on Ubuntu and Windows.
+
+The Everything server is an external protocol canary, not a real-world
+application server. Passing this slice establishes the external-target
+acceptance path; validation against sandboxed application servers remains the
+next M5 slice.
+
 ## Project boundaries
 
 The official
@@ -290,6 +312,7 @@ execution boundaries.
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
+| M5 | In progress (M5.1 complete locally) | Pinned external server canary, followed by sandboxed real-world server validation and evidence-backed upstream feedback |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -307,6 +330,8 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M3 real SDK client traces](https://github.com/lxingy3/mcp-statecheck/tree/v0.1.0/artifacts/m3)
 - [M3 benchmark pins](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/benchmarks/mcp-v2.toml)
 - [M4 clean-package acceptance](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m4/acceptance.json)
+- [M5 external canary trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/server-everything-2026.7.4-stdio.json)
+- [M5 external canary acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/acceptance.json)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License
