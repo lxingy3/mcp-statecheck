@@ -57,6 +57,7 @@ jobs:
         with:
           arguments: >-
             ["check", "--output", "m4-action-artifact.json", "--stdio", "--",
+            "uv", "run", "--project", ".", "--locked", "--no-dev",
             "python", "-m", "mcp_statecheck._controlled_peer",
             "--stdio", "--mode", "sdk-smoke"]
 
