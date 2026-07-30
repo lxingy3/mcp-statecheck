@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added a locked external MCP server canary with ten byte-identical stdio runs,
+  direct process cleanup evidence, isolated runtime state, and Ubuntu/Windows
+  CI coverage.
+
 ## 0.1.0 - 2026-07-30
 
 First public release.
