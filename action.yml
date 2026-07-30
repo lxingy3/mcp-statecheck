@@ -1,5 +1,5 @@
 name: mcp-statecheck
-description: Run Model Context Protocol checks and reports
+description: Run Model Context Protocol checks, replay, matrix, and reports
 author: Xiangyu Li
 
 inputs:

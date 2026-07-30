@@ -55,6 +55,11 @@ def test_request_before_initialized_slice_is_deterministic(tmp_path) -> None:
     assert artifact["fixture_id"] == "request-before-initialized"
     assert artifact["protocol_version"] == "2025-11-25"
     assert artifact["generation"]["engine"] == "Hypothesis RuleBasedStateMachine"
+    assert artifact["target_recipe"] == {
+        "fixture_id": "request-before-initialized",
+        "kind": "controlled-fixture",
+        "version": 1,
+    }
     assert artifact["cleanup"] == {
         "shrink_peer_reaped": True,
         "shrink_peer_returncode": 0,
@@ -303,7 +308,7 @@ def test_replay_failure_preserves_existing_artifact(tmp_path, monkeypatch) -> No
         "shrink_request_before_initialize",
         lambda *_args, **_kwargs: generated,
     )
-    monkeypatch.setattr(m2_script, "_replay_saved", fail_replay)
+    monkeypatch.setattr(m2_script, "replay_artifact", fail_replay)
 
     with pytest.raises(RuntimeError, match="controlled replay failure"):
         m2_script.build_artifact(output, seed=20_260_716, timeout=5)

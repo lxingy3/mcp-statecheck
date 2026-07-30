@@ -1,5 +1,5 @@
 schema_version = 1
-verified_at = "2026-07-28T10:00:00+08:00"
+verified_at = "2026-07-30T14:21:58+08:00"
 protocol_versions = ["2025-06-18", "2025-11-25"]
 transports = ["stdio", "streamable-http"]
 
@@ -13,9 +13,8 @@ version = "1.28.1"
 id = "python-v2"
 runtime = "python"
 package = "mcp"
-version = "2.0.0rc1"
-dependencies = ["mcp-types==2.0.0rc1"]
-prerelease = true
+version = "2.0.0"
+dependencies = ["mcp-types==2.0.0"]
 
 [[runners]]
 id = "typescript-v1"

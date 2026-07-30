@@ -4,12 +4,15 @@ import json
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import mcp_statecheck.cli as cli
+import mcp_statecheck.replay as replay_module
 from mcp_statecheck.execution import ExecutionResult
 from mcp_statecheck.model import ActionKind
+from mcp_statecheck.replay import ReplayInfrastructureError
 from mcp_statecheck.transports import StdioProtocolError, StdioTimeout
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -628,7 +631,49 @@ def test_version_uses_package_version(capsys: pytest.CaptureFixture[str]) -> Non
     with pytest.raises(SystemExit) as raised:
         cli.main(["--version"])
     assert raised.value.code == 0
-    assert capsys.readouterr().out == "mcp-statecheck 0.1.0.dev0\n"
+    assert capsys.readouterr().out == "mcp-statecheck 0.1.0\n"
+
+
+def test_replay_returns_failure_for_a_stable_reproducer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    artifact = tmp_path / "failure.json"
+    artifact.write_text("{}", encoding="utf-8")
+
+    async def replay(*_args: object) -> object:
+        return SimpleNamespace(
+            expected_signature="mcp-statecheck:v1:stable",
+            attempts=(object(),) * 10,
+        )
+
+    monkeypatch.setattr(replay_module, "replay_artifact", replay)
+
+    assert cli.main(["replay", str(artifact)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "in 10/10 attempts" in captured.err
+
+
+def test_replay_rejects_invalid_recipes_as_infrastructure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    artifact = tmp_path / "failure.json"
+    artifact.write_text("{}", encoding="utf-8")
+
+    async def replay(*_args: object) -> object:
+        raise ReplayInfrastructureError("unsupported target_recipe")
+
+    monkeypatch.setattr(replay_module, "replay_artifact", replay)
+
+    assert cli.main(["replay", str(artifact)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "unsupported target_recipe" in captured.err
+    assert "Traceback" not in captured.err
 
 
 @pytest.mark.parametrize("raw", ("not-json", "[1]", '{"command":"check"}'))

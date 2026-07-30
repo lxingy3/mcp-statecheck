@@ -115,6 +115,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="compare generated traces with the explicit output directory",
     )
+
+    replay = subparsers.add_parser(
+        "replay",
+        help="replay one allowlisted package-controlled failure artifact",
+    )
+    replay.add_argument("artifact", type=Path)
+    replay.add_argument("--timeout", type=_positive_float, default=5.0)
     return parser
 
 
@@ -782,6 +789,41 @@ def _run_matrix(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_replay(args: argparse.Namespace) -> int:
+    from .replay import (
+        ReplayInfrastructureError,
+        ReplayMismatch,
+        replay_artifact,
+    )
+
+    try:
+        result = anyio.run(replay_artifact, args.artifact, 10, args.timeout)
+    except ReplayMismatch as exc:
+        print(f"Replay mismatch: {_safe_message(exc)}", file=sys.stderr)
+        return 1
+    except (
+        ExecutionProtocolError,
+        HTTPProtocolError,
+        HTTPTimeout,
+        HTTPTransportError,
+        OSError,
+        ReplayInfrastructureError,
+        ReportError,
+        StdioError,
+        StdioProtocolError,
+        StdioTimeout,
+        TimeoutError,
+    ) as exc:
+        print(f"mcp-statecheck: {_safe_message(exc)}", file=sys.stderr)
+        return 2
+    print(
+        f"Replay reproduced {result.expected_signature} "
+        f"in {len(result.attempts)}/{len(result.attempts)} attempts",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -791,6 +833,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_report(args, parser)
     if args.subcommand == "matrix":
         return _run_matrix(args)
+    if args.subcommand == "replay":
+        return _run_replay(args)
     raise AssertionError(f"unhandled subcommand: {args.subcommand}")
 
 

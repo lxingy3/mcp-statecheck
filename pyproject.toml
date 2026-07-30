@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-statecheck"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Stateful differential testing for Model Context Protocol implementations"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -12,7 +12,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Xiangyu Li" }]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3.12",
   "Topic :: Software Development :: Testing",
@@ -22,6 +22,12 @@ dependencies = [
   "httpx>=0.28.1,<1",
   "hypothesis>=6.135,<7",
 ]
+
+[project.urls]
+Changelog = "https://github.com/lxingy3/mcp-statecheck/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/lxingy3/mcp-statecheck#readme"
+Issues = "https://github.com/lxingy3/mcp-statecheck/issues"
+Repository = "https://github.com/lxingy3/mcp-statecheck"
 
 [project.scripts]
 mcp-statecheck = "mcp_statecheck.cli:main"

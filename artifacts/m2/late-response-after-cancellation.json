@@ -333,5 +333,10 @@
   "schema_version": 1,
   "sdk_version": "none",
   "seed": 20260720,
+  "target_recipe": {
+    "fixture_id": "late-response-after-cancellation",
+    "kind": "controlled-fixture",
+    "version": 1
+  },
   "transport": "stdio"
 }

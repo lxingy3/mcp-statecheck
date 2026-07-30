@@ -1,21 +1,38 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 import anyio
 import pytest
 
+import mcp_statecheck._controlled_peer as controlled_peer
 from mcp_statecheck.execution import ExecutionResult
 from mcp_statecheck.invariants import detect_failure
 from mcp_statecheck.model import Action, ActionKind
 from mcp_statecheck.replay import (
     ReplayInfrastructureError,
+    controlled_target_recipe,
+    replay_artifact,
     replay_http_failure,
     replay_stdio_failure,
 )
 
 PEER = Path(__file__).parent / "fixtures" / "peer.py"
+ROOT = Path(__file__).resolve().parents[1]
+STDIO_ARTIFACT = ROOT / "artifacts" / "m2" / "request-before-initialized.json"
+HTTP_ARTIFACT = ROOT / "artifacts" / "m2" / "http-error-as-timeout.json"
+
+
+def _with_recipe(source: Path, output: Path) -> Path:
+    artifact = json.loads(source.read_text(encoding="utf-8"))
+    artifact["target_recipe"] = controlled_target_recipe(artifact["fixture_id"])
+    output.write_text(
+        json.dumps(artifact, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return output
 
 
 def test_minimized_failure_replays_ten_times_with_one_signature() -> None:
@@ -199,3 +216,133 @@ def test_http_replay_rejects_a_process_returncode() -> None:
             )
 
     anyio.run(scenario)
+
+
+def test_artifact_replay_uses_isolated_package_controlled_stdio_peer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _with_recipe(STDIO_ARTIFACT, tmp_path / "failure.json")
+    poison = tmp_path / "mcp_statecheck"
+    poison.mkdir()
+    sentinel = tmp_path / "executed.txt"
+    (poison / "_controlled_peer.py").write_text(
+        f"from pathlib import Path\nPath({str(sentinel)!r}).write_text('bad')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = anyio.run(replay_artifact, artifact, 1, 5)
+
+    assert len(result.attempts) == 1
+    assert not sentinel.exists()
+
+
+def test_artifact_replay_uses_package_controlled_http_peer(tmp_path: Path) -> None:
+    artifact = _with_recipe(HTTP_ARTIFACT, tmp_path / "failure.json")
+
+    result = anyio.run(replay_artifact, artifact, 1, 5)
+
+    assert len(result.attempts) == 1
+    assert result.attempts[0].execution.cleanup == {
+        "client_closed": True,
+        "listener_closed": True,
+    }
+
+
+def test_artifact_replay_classifies_http_cleanup_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _with_recipe(HTTP_ARTIFACT, tmp_path / "failure.json")
+
+    async def fail_cleanup(*_args: object) -> ExecutionResult:
+        raise RuntimeError("fixture HTTP listener still accepts connections")
+
+    monkeypatch.setattr(
+        controlled_peer,
+        "execute_controlled_http_fault",
+        fail_cleanup,
+    )
+
+    with pytest.raises(
+        ReplayInfrastructureError,
+        match="listener still accepts",
+    ):
+        anyio.run(replay_artifact, artifact, 1, 5)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("version", True),
+        ("version", 2),
+        ("kind", "command"),
+        ("fixture_id", "../untrusted.py"),
+    ),
+)
+def test_artifact_replay_rejects_untrusted_recipe_values(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    artifact = json.loads(STDIO_ARTIFACT.read_text(encoding="utf-8"))
+    artifact["target_recipe"] = controlled_target_recipe(artifact["fixture_id"])
+    artifact["target_recipe"][field] = value
+    path = tmp_path / "failure.json"
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ReplayInfrastructureError):
+        anyio.run(replay_artifact, path, 1, 5)
+
+
+def test_artifact_replay_rejects_recipe_commands_before_execution(
+    tmp_path: Path,
+) -> None:
+    artifact = json.loads(STDIO_ARTIFACT.read_text(encoding="utf-8"))
+    sentinel = tmp_path / "executed.txt"
+    artifact["target_recipe"] = {
+        **controlled_target_recipe(artifact["fixture_id"]),
+        "command": ["powershell", "-Command", f"Set-Content {sentinel} bad"],
+    }
+    path = tmp_path / "failure.json"
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ReplayInfrastructureError, match="fields must be exactly"):
+        anyio.run(replay_artifact, path, 1, 5)
+    assert not sentinel.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("fixture_id", "duplicate-concurrent-request-id"),
+        ("transport", "streamable-http"),
+        ("adapter", "controlled-wire"),
+        ("protocol_version", "2025-06-18"),
+    ),
+)
+def test_artifact_replay_rejects_recipe_metadata_mismatches(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    artifact = json.loads(STDIO_ARTIFACT.read_text(encoding="utf-8"))
+    artifact["target_recipe"] = controlled_target_recipe("request-before-initialized")
+    artifact[field] = value
+    path = tmp_path / "failure.json"
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ReplayInfrastructureError):
+        anyio.run(replay_artifact, path, 1, 5)
+
+
+def test_artifact_replay_requires_a_versioned_recipe(tmp_path: Path) -> None:
+    path = tmp_path / "failure.json"
+    path.write_bytes(STDIO_ARTIFACT.read_bytes())
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    artifact.pop("target_recipe", None)
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    with pytest.raises(ReplayInfrastructureError, match="target_recipe object"):
+        anyio.run(replay_artifact, path, 1, 5)

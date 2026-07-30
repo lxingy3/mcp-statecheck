@@ -288,6 +288,7 @@ class TraceRecorder:
         fixture_id: str | None = None,
         cleanup: Mapping[str, object] | None = None,
         generation: Mapping[str, object] | None = None,
+        target_recipe: Mapping[str, object] | None = None,
     ) -> None:
         self._lock = Lock()
         self._redactor = _Redactor(secret_values, environment)
@@ -308,6 +309,11 @@ class TraceRecorder:
             if not isinstance(redacted_generation, dict):
                 raise AssertionError("generation must be an object")
             self._metadata["generation"] = redacted_generation
+        if target_recipe is not None:
+            redacted_recipe = self._redactor.redact(target_recipe)
+            if not isinstance(redacted_recipe, dict):
+                raise AssertionError("target_recipe must be an object")
+            self._metadata["target_recipe"] = redacted_recipe
         self._canonical_actions: list[dict[str, JsonValue]] = []
         self._normalized_events: list[dict[str, JsonValue]] = []
         self._failure: dict[str, JsonValue] | None = None

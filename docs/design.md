@@ -6,10 +6,11 @@
 against isolated MCP implementations, normalizes observations, compares
 behavior, and reduces failures to deterministic traces.
 
-Version 0.1 supports MCP only. It covers stdio and Streamable HTTP, including
-initialization, capability negotiation, concurrent requests, cancellation,
-sessions, SSE resumption, and transport errors. Tasks and other agent
-protocols are outside this release.
+Version 0.1 supports MCP `2025-06-18` and `2025-11-25` only. It covers stdio
+and Streamable HTTP, including initialization, capability negotiation,
+concurrent requests, cancellation, sessions, SSE resumption, and transport
+errors. The stateless `2026-07-28` revision requires a separate action profile.
+Tasks and other agent protocols are outside this release.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -133,7 +134,7 @@ the controlled-fixture M2 gate.
 M3 covers the full client transport matrix. It runs four pinned SDK clients
 against controlled stdio and localhost Streamable HTTP peers:
 
-- Python `mcp` 1.28.1 and 2.0.0rc1 under Python 3.12.13;
+- Python `mcp` 1.28.1 and 2.0.0 under Python 3.12.13;
 - TypeScript `@modelcontextprotocol/sdk` 1.30.0 and
   `@modelcontextprotocol/client` 2.0.0 under Node.js 24.14.1.
 
@@ -164,7 +165,7 @@ The result is 16/16 client transport cells. This closes M3.
 
 ## M4 implementation status
 
-The current M4 slice exposes three installed commands:
+Version 0.1 exposes four installed commands:
 
 - `check` runs one bounded session smoke profile over an explicitly
   named stdio command or Streamable HTTP URL. It initializes, sends the
@@ -176,13 +177,16 @@ The current M4 slice exposes three installed commands:
 - `matrix` runs the locked Python/TypeScript v1/v2 clients across both protocol
   revisions and transports. It uses the bundled canonical benchmark unless the
   caller provides an explicit config.
+- `replay` loads a schema v1 failure artifact and repeats its minimized
+  reproducer ten times against a package-owned controlled peer.
 
-All three commands use the same `0`/`1`/`2` contract: no detected issue, protocol or
-differential failure, and configuration or infrastructure error. Report
-outputs are written before a saved failure returns `1`. Source and output path
-collisions are rejected so report generation cannot overwrite the only JSON
-evidence. A saved infrastructure error becomes a JUnit error, a failed SARIF
-invocation, an explicit HTML status, and report exit `2`.
+The commands use the same `0`/`1`/`2` contract: no detected issue, protocol or
+differential failure, and configuration or infrastructure error. A successful
+failure replay therefore exits `1`. Report outputs are written before a saved
+failure returns `1`. Source and output path collisions are rejected so report
+generation cannot overwrite the only JSON evidence. A saved infrastructure
+error becomes a JUnit error, a failed SARIF invocation, an explicit HTML
+status, and report exit `2`.
 
 The wire executor records valid server notifications while awaiting a client
 response. It answers server-initiated `ping` requests and returns JSON-RPC
@@ -192,8 +196,15 @@ the target session.
 HTTP secrets are referenced as `HEADER=ENVIRONMENT_VARIABLE`. Only the
 environment variable name appears in arguments; the resolved value goes
 directly to the HTTP transport and both recorder/report redaction boundaries.
-The target URL and stdio argv are not persisted because the current artifact
-schema does not yet define a replay-safe target recipe.
+The target URL and stdio argv are not persisted.
+
+The replay recipe is a strict object containing only `version`, `kind`, and
+`fixture_id`. Version 1 accepts the `controlled-fixture` kind and the five
+package-defined fixture IDs. It cross-checks the artifact protocol, transport,
+adapter, and fixture metadata before starting anything. Stdio replay always
+uses the installed package under Python isolated mode; HTTP replay always uses
+the package-owned peer on a dynamic localhost port. Commands, URLs,
+environments, and working directories cannot be encoded in a recipe.
 
 SARIF results carry the stable failure signature but do not invent source
 locations for protocol traces. They are suitable as deterministic artifacts;
@@ -215,10 +226,10 @@ allowlisted adapter and runner inputs into a temporary workspace before
 hashes package resources before and after execution to prove they remain
 unchanged.
 
-Installed `replay` and `deep` commands are deliberately absent from this slice.
-Artifacts do not yet carry an allowlisted, versioned target recipe, and the M2
-fault-injection state machines are not a safe substitute for testing an
-arbitrary server.
+The `deep` profile is deliberately absent from v0.1. Package-controlled replay
+closes the deterministic fixture gate without treating the M2 fault-injection
+state machines as a safe substitute for generated testing of an arbitrary
+server.
 
 ## v0.1 release gate
 

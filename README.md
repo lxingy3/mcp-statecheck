@@ -3,7 +3,8 @@
 Stateful differential testing for Model Context Protocol implementations.
 
 [![CI](https://github.com/lxingy3/mcp-statecheck/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lxingy3/mcp-statecheck/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/mcp-statecheck.svg)](https://pypi.org/project/mcp-statecheck/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/LICENSE)
 
 Many MCP failures only appear across a sequence: initialize, overlap requests,
 cancel one, reconnect an SSE stream, or recover from an expired session.
@@ -11,11 +12,10 @@ cancel one, reconnect an SSE stream, or recover from an expired session.
 wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
-> This project is pre-alpha. M0-M3 are complete, and the first M4 slice now
-> provides an installable quick-check CLI, deterministic offline reports, a
-> package-owned SDK matrix, a composite Action, and macOS nightly coverage.
-> Replay, deep profiles, the final release audit, GitHub Release, and PyPI
-> publication remain blocked.
+> Version 0.1.0 provides an installable quick-check CLI, deterministic replay
+> of package-controlled failures, offline reports, a package-owned SDK matrix,
+> a composite Action, and cross-platform acceptance. Arbitrary-target replay
+> and the `deep` profile remain intentionally outside this release.
 
 ## Quickstart
 
@@ -27,6 +27,14 @@ cd mcp-statecheck
 uv sync --locked
 uv run mcp-statecheck check --output artifacts/quickstart.json --junit artifacts/quickstart.xml --sarif artifacts/quickstart.sarif --html artifacts/quickstart.html --stdio -- uv run python -m mcp_statecheck._controlled_peer --stdio --mode sdk-smoke
 Check passed: wrote artifacts/quickstart.json
+```
+
+The released CLI can also be installed without a checkout:
+
+```console
+uv tool install mcp-statecheck==0.1.0
+mcp-statecheck --version
+mcp-statecheck 0.1.0
 ```
 
 The same quick profile can target only a server you explicitly name:
@@ -52,7 +60,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | stdio | JSON Lines subprocess transport with deadlines, bounded stderr, and child cleanup |
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
-| Installed CLI | Explicit-target checks, offline reports, and the locked 16-cell SDK matrix with `0`/`1`/`2` exit codes |
+| Installed CLI | Explicit-target checks, allowlisted replay, offline reports, and the locked 16-cell SDK matrix with `0`/`1`/`2` exit codes |
 | Reports | Deterministic JSON, JUnit XML, SARIF 2.1.0, and a script-free single-file HTML trace explorer |
 | Automation | A JSON-argv composite Action plus scheduled macOS runs of the full SDK matrix and clean-package acceptance |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
@@ -72,9 +80,10 @@ flowchart LR
     F --> I["JSON · JUnit · SARIF · offline HTML"]
 ```
 
-The checked-in [M1 acceptance report](artifacts/m1/acceptance.json) records
-Python 3.12.13, 150 passing tests, and all five M1 fixture checks within a
-180-second hard deadline. CI runs the locked project on Ubuntu and Windows.
+The checked-in [M1 acceptance report](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m1/acceptance.json) records the
+pinned Python runtime, exact passing test count, and all five M1 fixture checks
+within a 180-second hard deadline. CI runs the locked project on Ubuntu and
+Windows.
 
 ## Reproduce the M1 baseline
 
@@ -88,18 +97,6 @@ uv build
 
 The acceptance command runs the full test suite and writes one wire trace per
 controlled fixture to `artifacts/m1/`.
-
-A successful report currently includes:
-
-```json
-{
-  "fixture_checks_passed": 5,
-  "milestone": "M1",
-  "python": "3.12.13",
-  "status": "passed",
-  "tests_passed": 150
-}
-```
 
 ## Controlled defect corpus
 
@@ -165,6 +162,20 @@ captures the actual cursor, session, and protocol headers. Each HTTP candidate
 and replay uses a fresh localhost peer, verifies client and listener cleanup,
 and verifies session deletion when a session was established.
 
+The installed replay command accepts only checked-in artifacts with the
+versioned `controlled-fixture` target recipe:
+
+```console
+$ mcp-statecheck replay artifacts/m2/request-before-initialized.json
+Replay reproduced mcp-statecheck:v1:62237ccbaf578ac57aedd89b1b34c81c01913f6541dc3d3d414fbc180fd25dc2 in 10/10 attempts
+```
+
+Reproducing the protocol or differential failure exits `1`. Invalid artifacts,
+unknown recipe versions or fixture IDs, startup failures, and cleanup failures
+exit `2`. The recipe schema has exactly three fields: `version`, `kind`, and
+`fixture_id`. It cannot store or execute a command, URL, environment variable,
+or working directory.
+
 ## Reproduce M3
 
 The client matrix covers four pinned SDK runners, both released protocol
@@ -174,10 +185,10 @@ npm dependencies:
 
 | Runner | SDK | 2025-06-18 | 2025-11-25 |
 | --- | --- | --- | --- |
-| `python-v1` | `mcp 1.28.1` | [stdio](artifacts/m3/stdio/python-v1-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/python-v1-2025-06-18.json) | [stdio](artifacts/m3/stdio/python-v1-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/python-v1-2025-11-25.json) |
-| `python-v2` | `mcp 2.0.0rc1` | [stdio](artifacts/m3/stdio/python-v2-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/python-v2-2025-06-18.json) | [stdio](artifacts/m3/stdio/python-v2-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/python-v2-2025-11-25.json) |
-| `typescript-v1` | `@modelcontextprotocol/sdk 1.30.0` | [stdio](artifacts/m3/stdio/typescript-v1-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/typescript-v1-2025-06-18.json) | [stdio](artifacts/m3/stdio/typescript-v1-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/typescript-v1-2025-11-25.json) |
-| `typescript-v2` | `@modelcontextprotocol/client 2.0.0` | [stdio](artifacts/m3/stdio/typescript-v2-2025-06-18.json) · [HTTP](artifacts/m3/streamable-http/typescript-v2-2025-06-18.json) | [stdio](artifacts/m3/stdio/typescript-v2-2025-11-25.json) · [HTTP](artifacts/m3/streamable-http/typescript-v2-2025-11-25.json) |
+| `python-v1` | `mcp 1.28.1` | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/python-v1-2025-06-18.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/python-v1-2025-06-18.json) | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/python-v1-2025-11-25.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/python-v1-2025-11-25.json) |
+| `python-v2` | `mcp 2.0.0` | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/python-v2-2025-06-18.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/python-v2-2025-06-18.json) | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/python-v2-2025-11-25.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/python-v2-2025-11-25.json) |
+| `typescript-v1` | `@modelcontextprotocol/sdk 1.30.0` | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/typescript-v1-2025-06-18.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/typescript-v1-2025-06-18.json) | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/typescript-v1-2025-11-25.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/typescript-v1-2025-11-25.json) |
+| `typescript-v2` | `@modelcontextprotocol/client 2.0.0` | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/typescript-v2-2025-06-18.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/typescript-v2-2025-06-18.json) | [stdio](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/stdio/typescript-v2-2025-11-25.json) / [HTTP](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m3/streamable-http/typescript-v2-2025-11-25.json) |
 
 ```console
 $ uv run python scripts/run_m3_client_matrix.py --check --output artifacts/m3
@@ -217,7 +228,7 @@ The repository-local composite Action accepts a JSON array rather than a shell
 command string:
 
 ```yaml
-- uses: lxingy3/mcp-statecheck@main
+- uses: lxingy3/mcp-statecheck@v0.1.0
   env:
     MCP_TOKEN: ${{ secrets.MCP_TOKEN }}
   with:
@@ -228,18 +239,16 @@ command string:
       "--junit", "artifacts/statecheck.xml"]
 ```
 
-Until the first release tag exists, pin a reviewed commit instead of `main` in
-security-sensitive workflows.
-
 The clean-package acceptance command builds both distributions, installs them
 outside the source tree, and verifies their import origins. It exercises the
 wheel's actual console script against real stdio and localhost Streamable HTTP
-peers, parses all four outputs for each transport, proves HTTP session deletion
-and listener/process cleanup, probes the sdist-installed matrix assets, runs the
-wheel-installed 16-cell SDK matrix from an empty directory, compares every trace
-with the checked-in goldens, verifies package resources remain byte-identical,
-and checks that a runtime authorization secret does not reach artifacts or
-process output:
+peers, replays all five controlled failures ten times from an untrusted working
+directory, parses all four outputs for each transport, proves HTTP session
+deletion and listener/process cleanup, probes the sdist-installed matrix assets,
+runs the wheel-installed 16-cell SDK matrix from an empty directory, compares
+every trace with the checked-in goldens, verifies package resources remain
+byte-identical, and checks that a runtime authorization secret does not reach
+artifacts or process output:
 
 ```console
 uv run python scripts/run_m4_acceptance.py
@@ -257,12 +266,20 @@ rather than replacing it.
 Schema lockfiles, API compatibility checks, and protocols other than MCP are
 outside the v0.1 scope.
 
-The installed CLI exposes the bounded `check`, `report`, and `matrix` commands.
+The v0.1 model and matrix target MCP `2025-06-18` and `2025-11-25`. The
+newly released `2026-07-28` revision removes protocol-level sessions, the
+initialize handshake, and SSE resumption, so it requires a separate stateless
+action profile rather than a version-string-only matrix cell.
+
+The installed CLI exposes the bounded `check`, `replay`, `report`, and `matrix`
+commands.
 The matrix copies only its allowlisted adapter and runner inputs into a
 temporary workspace before preparing isolated SDK environments; it never
-installs into package resources. The M2 replay corpus remains a repository
-harness until its artifacts carry an allowlisted, versioned target recipe. No
-`deep` or `replay` command is registered as a placeholder.
+installs into package resources. Replay accepts only the five package-controlled
+fixture recipes and starts only the package-owned peer; artifacts cannot select
+an arbitrary executable or network target. The `deep` profile is deferred until
+generated sequences can target user-selected servers without weakening these
+execution boundaries.
 
 ## Roadmap
 
@@ -272,25 +289,25 @@ harness until its artifacts carry an allowlisted, versioned target recipe. No
 | M1 | Complete | Canonical model, wire transports, trace recorder, and controlled peers |
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
-| M4 | In progress | Quick-check CLI, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
+| M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 
-The source repository is public during development. GitHub Releases and PyPI
-publication remain blocked until the full
-[v0.1 release gate](docs/design.md#v01-release-gate) passes.
+The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
+the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
 
 ## Documentation
 
-- [Design baseline](docs/design.md)
-- [MCP landscape snapshot](docs/research/2026-07-15-landscape.md)
-- [M1 acceptance report](artifacts/m1/acceptance.json)
-- [M2 HTTP classification failure](artifacts/m2/http-error-as-timeout.json)
-- [M2 lifecycle failure](artifacts/m2/request-before-initialized.json)
-- [M2 duplicate request ID failure](artifacts/m2/duplicate-concurrent-request-id.json)
-- [M2 cancellation correlation failure](artifacts/m2/late-response-after-cancellation.json)
-- [M2 SSE resume failure](artifacts/m2/second-sse-resume-token-loss.json)
-- [M3 real SDK client traces](artifacts/m3/)
-- [M3 benchmark pins](benchmarks/mcp-v2.toml)
-- [M4 clean-package acceptance](artifacts/m4/acceptance.json)
+- [Design baseline](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/design.md)
+- [MCP landscape snapshot](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/research/2026-07-15-landscape.md)
+- [M1 acceptance report](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m1/acceptance.json)
+- [M2 HTTP classification failure](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m2/http-error-as-timeout.json)
+- [M2 lifecycle failure](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m2/request-before-initialized.json)
+- [M2 duplicate request ID failure](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m2/duplicate-concurrent-request-id.json)
+- [M2 cancellation correlation failure](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m2/late-response-after-cancellation.json)
+- [M2 SSE resume failure](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m2/second-sse-resume-token-loss.json)
+- [M3 real SDK client traces](https://github.com/lxingy3/mcp-statecheck/tree/v0.1.0/artifacts/m3)
+- [M3 benchmark pins](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/benchmarks/mcp-v2.toml)
+- [M4 clean-package acceptance](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m4/acceptance.json)
+- [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License
 

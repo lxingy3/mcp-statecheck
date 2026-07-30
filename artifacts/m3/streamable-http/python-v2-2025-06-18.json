@@ -167,7 +167,7 @@
   ],
   "protocol_version": "2025-06-18",
   "schema_version": 1,
-  "sdk_version": "2.0.0rc1",
+  "sdk_version": "2.0.0",
   "seed": 0,
   "transport": "streamable-http"
 }

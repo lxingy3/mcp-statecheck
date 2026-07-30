@@ -1,15 +1,15 @@
 {
   "builds": {
-    "sdist": "mcp_statecheck-0.1.0.dev0.tar.gz",
-    "wheel": "mcp_statecheck-0.1.0.dev0-py3-none-any.whl"
+    "sdist": "mcp_statecheck-0.1.0.tar.gz",
+    "wheel": "mcp_statecheck-0.1.0-py3-none-any.whl"
   },
   "clean_installs": [
     "sdist",
     "wheel"
   ],
   "console_versions": {
-    "sdist": "mcp-statecheck 0.1.0.dev0",
-    "wheel": "mcp-statecheck 0.1.0.dev0"
+    "sdist": "mcp-statecheck 0.1.0",
+    "wheel": "mcp-statecheck 0.1.0"
   },
   "import_origins": {
     "sdist": "isolated",
@@ -25,9 +25,17 @@
     "status": "passed"
   },
   "milestone": "M4",
-  "package_version": "0.1.0.dev0",
+  "package_version": "0.1.0",
   "python": "3.12.13",
   "pythonpath_cleared": true,
+  "replay": {
+    "attempts_per_fixture": 10,
+    "fixtures": 5,
+    "package_controlled": true,
+    "recipe_version": 1,
+    "status": "passed",
+    "working_directory_isolated": true
+  },
   "reports": [
     "html",
     "json",
@@ -62,6 +70,7 @@
     "peer_ready": 10,
     "peer_stop": 10,
     "process_probe": 10,
+    "replay": 90,
     "venv": 120,
     "version": 15
   }

@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNNERS = {
     "python-v1": ("mcp", "1.28.1", "3.12.13"),
-    "python-v2": ("mcp", "2.0.0rc1", "3.12.13"),
+    "python-v2": ("mcp", "2.0.0", "3.12.13"),
     "typescript-v1": ("@modelcontextprotocol/sdk", "1.30.0", "24.14.1"),
     "typescript-v2": (
         "@modelcontextprotocol/client",
@@ -85,8 +85,8 @@ def test_m3_pins_cover_the_real_client_transport_matrix():
         assert runners[runner_id]["package"] == package
         assert runners[runner_id]["version"] == version
 
-    assert runners["python-v2"]["dependencies"] == ["mcp-types==2.0.0rc1"]
-    assert runners["python-v2"]["prerelease"] is True
+    assert runners["python-v2"]["dependencies"] == ["mcp-types==2.0.0"]
+    assert "prerelease" not in runners["python-v2"]
     assert "prerelease" not in runners["typescript-v2"]
     for runner_id in ("python-v1", "python-v2"):
         environment = (

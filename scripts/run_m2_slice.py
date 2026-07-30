@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from collections.abc import Mapping
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -20,9 +18,9 @@ from mcp_statecheck.fixtures import (
 )
 from mcp_statecheck.model import Action, ActionKind
 from mcp_statecheck.replay import (
-    ReplayResult,
-    replay_http_failure,
-    replay_stdio_failure,
+    REPLAY_ATTEMPTS,
+    controlled_target_recipe,
+    replay_artifact,
 )
 from mcp_statecheck.stateful import (
     ShrinkResult,
@@ -48,7 +46,6 @@ DEFAULT_SEEDS = {
     "late-response-after-cancellation": 20_260_720,
     SSE_RESUME_FIXTURE_ID: 20_260_722,
 }
-REPLAY_ATTEMPTS = 10
 
 
 def _controlled_http_executor(fixture_id: str):
@@ -64,6 +61,7 @@ def _controlled_http_executor(fixture_id: str):
 def _peer_command(fixture_id: str) -> tuple[str, ...]:
     return (
         sys.executable,
+        "-I",
         "-m",
         "mcp_statecheck._controlled_peer",
         "--stdio",
@@ -93,6 +91,7 @@ def _recorder(result: ShrinkResult, fixture_id: str) -> TraceRecorder:
             "settings": result.settings,
             "version": result.hypothesis_version,
         },
+        target_recipe=controlled_target_recipe(fixture_id),
     )
     events = iter(result.execution.events)
     event = next(events, None)
@@ -161,50 +160,6 @@ def _shrink(
     raise ValueError(f"unsupported M2 fixture: {fixture_id}")
 
 
-def _load_failure(path: Path) -> tuple[tuple[Action, ...], str]:
-    artifact = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(artifact, Mapping):
-        raise TypeError("saved trace must be an object")
-    failure = artifact.get("failure")
-    if not isinstance(failure, Mapping):
-        raise TypeError("saved trace must contain a failure object")
-    reproducer = failure.get("minimized_reproducer")
-    if not isinstance(reproducer, list) or not all(
-        isinstance(action, Mapping) for action in reproducer
-    ):
-        raise TypeError("saved trace must contain canonical reproducer actions")
-    signature = failure.get("signature")
-    if not isinstance(signature, str) or not signature:
-        raise TypeError("saved trace must contain a failure signature")
-    return tuple(Action.from_dict(action) for action in reproducer), signature
-
-
-async def _replay_saved(
-    actions: tuple[Action, ...],
-    signature: str,
-    timeout: float,
-    fixture_id: str,
-) -> ReplayResult:
-    if fixture_id in {HTTP_ERROR_FIXTURE_ID, SSE_RESUME_FIXTURE_ID}:
-        executor = _controlled_http_executor(fixture_id)
-        return await replay_http_failure(
-            actions,
-            executor,
-            expected_signature=signature,
-            fixture_id=fixture_id,
-            attempts=REPLAY_ATTEMPTS,
-            timeout=timeout,
-        )
-    return await replay_stdio_failure(
-        actions,
-        _peer_command(fixture_id),
-        expected_signature=signature,
-        fixture_id=fixture_id,
-        attempts=REPLAY_ATTEMPTS,
-        timeout=timeout,
-    )
-
-
 def build_artifact(
     output: Path,
     *,
@@ -232,13 +187,11 @@ def build_artifact(
     ) as temporary_directory:
         staging = Path(temporary_directory) / output.name
         recorder.write(staging)
-        saved_actions, saved_signature = _load_failure(staging)
         replay = anyio.run(
-            _replay_saved,
-            saved_actions,
-            saved_signature,
+            replay_artifact,
+            staging,
+            REPLAY_ATTEMPTS,
             timeout,
-            fixture_id,
         )
     recorder.set_replay(
         attempts=len(replay.attempts),

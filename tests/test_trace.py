@@ -113,6 +113,11 @@ def test_artifact_records_generation_and_replay_proof() -> None:
         transport="stdio",
         seed=17,
         generation={"engine": "hypothesis", "version": "6.0"},
+        target_recipe={
+            "fixture_id": "request-before-initialized",
+            "kind": "controlled-fixture",
+            "version": 1,
+        },
     )
 
     recorder.set_replay(
@@ -127,6 +132,11 @@ def test_artifact_records_generation_and_replay_proof() -> None:
     assert artifact["generation"] == {
         "engine": "hypothesis",
         "version": "6.0",
+    }
+    assert artifact["target_recipe"] == {
+        "fixture_id": "request-before-initialized",
+        "kind": "controlled-fixture",
+        "version": 1,
     }
     assert artifact["replay"] == {
         "attempts": 10,

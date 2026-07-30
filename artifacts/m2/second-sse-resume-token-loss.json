@@ -321,5 +321,10 @@
   "schema_version": 1,
   "sdk_version": "none",
   "seed": 20260722,
+  "target_recipe": {
+    "fixture_id": "second-sse-resume-token-loss",
+    "kind": "controlled-fixture",
+    "version": 1
+  },
   "transport": "streamable-http"
 }

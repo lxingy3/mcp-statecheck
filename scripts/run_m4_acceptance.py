@@ -33,6 +33,7 @@ TIMEOUTS = {
     "venv": 120,
     "install": 180,
     "matrix": 420,
+    "replay": 90,
     "version": 15,
     "check": 30,
     "peer_ready": 10,
@@ -58,6 +59,13 @@ MATRIX_PACKAGE_ASSETS = {
     "matrix.py",
     "model.py",
 }
+REPLAY_FIXTURES = (
+    "http-error-as-timeout",
+    "duplicate-concurrent-request-id",
+    "second-sse-resume-token-loss",
+    "request-before-initialized",
+    "late-response-after-cancellation",
+)
 
 
 class AcceptanceError(RuntimeError):
@@ -590,7 +598,9 @@ def _atomic_write(path: Path, value: Mapping[str, object]) -> None:
         raise
 
 
-def _accept() -> dict[str, object]:
+def _accept(
+    distributions_output: Path | None = None,
+) -> dict[str, object]:
     uv = shutil.which("uv")
     if uv is None:
         raise AcceptanceError("uv is required")
@@ -607,11 +617,24 @@ def _accept() -> dict[str, object]:
             raise AcceptanceError(
                 "clean-install directory must be outside the source tree"
             )
-        distributions = work / "dist"
-        distributions.mkdir()
+        distributions = (
+            work / "dist"
+            if distributions_output is None
+            else distributions_output.resolve()
+        )
+        if distributions.exists() and any(distributions.iterdir()):
+            raise AcceptanceError("distribution output directory must be empty")
+        distributions.mkdir(parents=True, exist_ok=True)
         for kind in ("wheel", "sdist"):
             _run(
-                [uv, "build", f"--{kind}", "--out-dir", distributions],
+                [
+                    uv,
+                    "build",
+                    "--no-sources",
+                    f"--{kind}",
+                    "--out-dir",
+                    distributions,
+                ],
                 cwd=ROOT,
                 environment=environment,
                 timeout=TIMEOUTS["build"],
@@ -702,6 +725,47 @@ def _accept() -> dict[str, object]:
             cwd=work,
             environment=environment,
         )
+
+        replay_consumer = work / "replay-consumer"
+        poison = replay_consumer / "mcp_statecheck"
+        poison.mkdir(parents=True)
+        sentinel = replay_consumer / "untrusted-peer-executed.txt"
+        poison_code = (
+            "from pathlib import Path\n"
+            f"Path({str(sentinel)!r}).write_text('executed', encoding='utf-8')\n"
+        )
+        (poison / "__init__.py").write_text(poison_code, encoding="utf-8")
+        (poison / "_controlled_peer.py").write_text(poison_code, encoding="utf-8")
+        _, wheel_console = installs["wheel"]
+        for fixture_id in REPLAY_FIXTURES:
+            artifact = ROOT / "artifacts" / "m2" / f"{fixture_id}.json"
+            expected_signature = json.loads(artifact.read_text(encoding="utf-8"))[
+                "failure"
+            ]["signature"]
+            replay = _run(
+                [
+                    wheel_console,
+                    "replay",
+                    artifact,
+                    "--timeout",
+                    "5",
+                ],
+                cwd=replay_consumer,
+                environment=environment,
+                timeout=TIMEOUTS["replay"],
+                label=f"clean wheel replay for {fixture_id}",
+                expected=(1,),
+            )
+            if replay.stdout or replay.stderr.strip() != (
+                f"Replay reproduced {expected_signature} in 10/10 attempts"
+            ):
+                raise AcceptanceError(
+                    f"clean wheel replay printed an unexpected result for {fixture_id}"
+                )
+            if sentinel.exists():
+                raise AcceptanceError(
+                    "installed replay imported an untrusted working-directory peer"
+                )
 
         reports = work / "reports"
         stdio_artifact = reports / "stdio.json"
@@ -932,6 +996,14 @@ def _accept() -> dict[str, object]:
                 "status": "passed",
             },
             "pythonpath_cleared": True,
+            "replay": {
+                "attempts_per_fixture": 10,
+                "fixtures": len(REPLAY_FIXTURES),
+                "package_controlled": True,
+                "recipe_version": 1,
+                "status": "passed",
+                "working_directory_isolated": True,
+            },
             "source_tree_outside_cwd": True,
             "stdio": {
                 "fixture": "sdk-smoke",
@@ -958,9 +1030,10 @@ def _accept() -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--dist-output", type=Path)
     args = parser.parse_args(argv)
     try:
-        summary = _accept()
+        summary = _accept(args.dist_output)
     except (AcceptanceError, OSError, KeyError, TypeError, ValueError) as exc:
         summary = {
             "schema_version": 1,
@@ -981,8 +1054,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         print(
             "M4 acceptance passed: clean wheel and sdist installs, real stdio "
-            "and Streamable HTTP checks, 16 installed matrix cells, and four "
-            "report formats per transport; "
+            "and Streamable HTTP checks, five installed replays, 16 installed "
+            "matrix cells, and four report formats per transport; "
             f"wrote {args.output}"
         )
     return returncode

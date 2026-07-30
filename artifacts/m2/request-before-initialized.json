@@ -136,5 +136,10 @@
   "schema_version": 1,
   "sdk_version": "none",
   "seed": 20260716,
+  "target_recipe": {
+    "fixture_id": "request-before-initialized",
+    "kind": "controlled-fixture",
+    "version": 1
+  },
   "transport": "stdio"
 }

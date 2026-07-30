@@ -120,7 +120,7 @@ async function main() {
   );
   const { Client } = clientModule;
   const client = new Client(
-    { name: "mcp-statecheck", version: "0.1.0-dev" },
+    { name: "mcp-statecheck", version: "0.1.0" },
     isV1
       ? { capabilities: {} }
       : {

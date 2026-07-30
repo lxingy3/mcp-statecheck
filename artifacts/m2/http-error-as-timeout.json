@@ -164,5 +164,10 @@
   "schema_version": 1,
   "sdk_version": "none",
   "seed": 20260721,
+  "target_recipe": {
+    "fixture_id": "http-error-as-timeout",
+    "kind": "controlled-fixture",
+    "version": 1
+  },
   "transport": "streamable-http"
 }

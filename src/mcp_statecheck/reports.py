@@ -102,7 +102,7 @@ def _prepare_artifact(
     fixture_id = prepared.get("fixture_id")
     if fixture_id is not None and (not isinstance(fixture_id, str) or not fixture_id):
         raise ReportError("artifact fixture_id must be a non-empty string")
-    for name in ("cleanup", "generation", "replay"):
+    for name in ("cleanup", "generation", "replay", "target_recipe"):
         value = prepared.get(name)
         if value is not None and not isinstance(value, dict):
             raise ReportError(f"artifact {name} must be an object")
