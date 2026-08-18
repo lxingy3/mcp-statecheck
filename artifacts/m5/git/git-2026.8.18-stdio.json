@@ -1,0 +1,664 @@
+{
+  "adapter": "wire",
+  "canonical_actions": [
+    {
+      "action_id": "initialize",
+      "capabilities": {},
+      "kind": "initialize",
+      "mcp_request_id": 1,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2025-11-25",
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "initialize-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 2,
+      "stream_id": null,
+      "target_action_id": "initialize"
+    },
+    {
+      "action_id": "initialized",
+      "capabilities": null,
+      "kind": "initialized",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 3,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "tools-list",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 2,
+      "method": "tools/list",
+      "payload": {},
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 4,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "tools-list-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 5,
+      "stream_id": null,
+      "target_action_id": "tools-list"
+    },
+    {
+      "action_id": "create-branch",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 3,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "base_branch": "main",
+          "branch_name": "m5-state",
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_create_branch"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 6,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "create-branch-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 7,
+      "stream_id": null,
+      "target_action_id": "create-branch"
+    },
+    {
+      "action_id": "create-outside",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 4,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "base_branch": "main",
+          "branch_name": "escape-attempt",
+          "repo_path": "<outside-repo>"
+        },
+        "name": "git_create_branch"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 8,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "create-outside-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 9,
+      "stream_id": null,
+      "target_action_id": "create-outside"
+    },
+    {
+      "action_id": "list-branches",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 5,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "branch_type": "local",
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_branch"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 10,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "list-branches-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 11,
+      "stream_id": null,
+      "target_action_id": "list-branches"
+    }
+  ],
+  "cleanup": {
+    "server_reaped": true,
+    "server_returncode": 0
+  },
+  "fixture_id": "git-repository-state",
+  "generation": {
+    "engine": "mcp-statecheck M5 acceptance",
+    "outcome": "passed",
+    "profile": "application-state"
+  },
+  "normalized_events": [
+    {
+      "kind": "response",
+      "mcp_request_id": 1,
+      "outcome": "success",
+      "payload": {
+        "capabilities": {
+          "experimental": {},
+          "tools": {
+            "listChanged": false
+          }
+        },
+        "protocolVersion": "2025-11-25",
+        "serverInfo": {
+          "name": "mcp-git",
+          "version": "1.29.0"
+        }
+      },
+      "sequence": 12,
+      "target_action_id": "initialize"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 2,
+      "outcome": "success",
+      "payload": {
+        "tools": [
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Shows the working tree status",
+            "inputSchema": {
+              "properties": {
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path"
+              ],
+              "title": "GitStatus",
+              "type": "object"
+            },
+            "name": "git_status"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Shows changes in the working directory that are not yet staged",
+            "inputSchema": {
+              "properties": {
+                "context_lines": {
+                  "default": 3,
+                  "title": "Context Lines",
+                  "type": "integer"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path"
+              ],
+              "title": "GitDiffUnstaged",
+              "type": "object"
+            },
+            "name": "git_diff_unstaged"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Shows changes that are staged for commit",
+            "inputSchema": {
+              "properties": {
+                "context_lines": {
+                  "default": 3,
+                  "title": "Context Lines",
+                  "type": "integer"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path"
+              ],
+              "title": "GitDiffStaged",
+              "type": "object"
+            },
+            "name": "git_diff_staged"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Shows differences between branches or commits",
+            "inputSchema": {
+              "properties": {
+                "context_lines": {
+                  "default": 3,
+                  "title": "Context Lines",
+                  "type": "integer"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                },
+                "target": {
+                  "title": "Target",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path",
+                "target"
+              ],
+              "title": "GitDiff",
+              "type": "object"
+            },
+            "name": "git_diff"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Records changes to the repository",
+            "inputSchema": {
+              "properties": {
+                "message": {
+                  "title": "Message",
+                  "type": "string"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path",
+                "message"
+              ],
+              "title": "GitCommit",
+              "type": "object"
+            },
+            "name": "git_commit"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Adds file contents to the staging area",
+            "inputSchema": {
+              "properties": {
+                "files": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Files",
+                  "type": "array"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path",
+                "files"
+              ],
+              "title": "GitAdd",
+              "type": "object"
+            },
+            "name": "git_add"
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Unstages all staged changes",
+            "inputSchema": {
+              "properties": {
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path"
+              ],
+              "title": "GitReset",
+              "type": "object"
+            },
+            "name": "git_reset"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Shows the commit logs",
+            "inputSchema": {
+              "properties": {
+                "end_timestamp": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "End timestamp for filtering commits. Accepts: ISO 8601 format (e.g., '2024-01-15T14:30:25'), relative dates (e.g., '2 weeks ago', 'yesterday'), or absolute dates (e.g., '2024-01-15', 'Jan 15 2024')",
+                  "title": "End Timestamp"
+                },
+                "max_count": {
+                  "default": 10,
+                  "title": "Max Count",
+                  "type": "integer"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                },
+                "start_timestamp": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Start timestamp for filtering commits. Accepts: ISO 8601 format (e.g., '2024-01-15T14:30:25'), relative dates (e.g., '2 weeks ago', 'yesterday'), or absolute dates (e.g., '2024-01-15', 'Jan 15 2024')",
+                  "title": "Start Timestamp"
+                }
+              },
+              "required": [
+                "repo_path"
+              ],
+              "title": "GitLog",
+              "type": "object"
+            },
+            "name": "git_log"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Creates a new branch from an optional base branch",
+            "inputSchema": {
+              "properties": {
+                "base_branch": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Base Branch"
+                },
+                "branch_name": {
+                  "title": "Branch Name",
+                  "type": "string"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path",
+                "branch_name"
+              ],
+              "title": "GitCreateBranch",
+              "type": "object"
+            },
+            "name": "git_create_branch"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false
+            },
+            "description": "Switches branches",
+            "inputSchema": {
+              "properties": {
+                "branch_name": {
+                  "title": "Branch Name",
+                  "type": "string"
+                },
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path",
+                "branch_name"
+              ],
+              "title": "GitCheckout",
+              "type": "object"
+            },
+            "name": "git_checkout"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "Shows the contents of a commit",
+            "inputSchema": {
+              "properties": {
+                "repo_path": {
+                  "title": "Repo Path",
+                  "type": "string"
+                },
+                "revision": {
+                  "title": "Revision",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path",
+                "revision"
+              ],
+              "title": "GitShow",
+              "type": "object"
+            },
+            "name": "git_show"
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true
+            },
+            "description": "List Git branches",
+            "inputSchema": {
+              "properties": {
+                "branch_type": {
+                  "description": "Whether to list local branches ('local'), remote branches ('remote') or all branches('all').",
+                  "title": "Branch Type",
+                  "type": "string"
+                },
+                "contains": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "The commit sha that branch should contain. Do not pass anything to this param if no commit sha is specified",
+                  "title": "Contains"
+                },
+                "not_contains": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "The commit sha that branch should NOT contain. Do not pass anything to this param if no commit sha is specified",
+                  "title": "Not Contains"
+                },
+                "repo_path": {
+                  "description": "The path to the Git repository.",
+                  "title": "Repo Path",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "repo_path",
+                "branch_type"
+              ],
+              "title": "GitBranch",
+              "type": "object"
+            },
+            "name": "git_branch"
+          }
+        ]
+      },
+      "sequence": 13,
+      "target_action_id": "tools-list"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 3,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Created branch 'm5-state' from 'main'",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 14,
+      "target_action_id": "create-branch"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 4,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Repository path '<outside-repo>' is outside the allowed repository '<allowed-repo>'",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      },
+      "sequence": 15,
+      "target_action_id": "create-outside"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 5,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "  m5-state\n* main",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 16,
+      "target_action_id": "list-branches"
+    }
+  ],
+  "protocol_version": "2025-11-25",
+  "schema_version": 1,
+  "sdk_version": "mcp-server-git==2026.8.18",
+  "seed": 0,
+  "transport": "stdio"
+}

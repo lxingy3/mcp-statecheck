@@ -5,6 +5,9 @@
 - Added a locked external MCP server canary with ten byte-identical stdio runs,
   direct process cleanup evidence, isolated runtime state, and Ubuntu/Windows
   CI coverage.
+- Added pinned Filesystem and Git application-server acceptance with real
+  state mutations, tested sibling-mutation rejection, ten-run deterministic
+  evidence, isolated credentials, and Linux/Windows/macOS automation.
 
 ## 0.1.0 - 2026-07-30
 

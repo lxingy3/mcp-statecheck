@@ -1,0 +1,55 @@
+{
+  "isolation": {
+    "allowed_directory": "fresh temporary directory per run",
+    "ambient_credentials_removed": true,
+    "os_sandbox": false
+  },
+  "milestone": "M5",
+  "protocol_version": "2025-11-25",
+  "runtime": {
+    "mcp_statecheck": "0.1.0",
+    "node": "24.14.1",
+    "npm": "11.11.0",
+    "python": "3.12.13"
+  },
+  "schema_version": 1,
+  "slice": "filesystem-application-server",
+  "status": "passed",
+  "targets": {
+    "filesystem": {
+      "cleanup": {
+        "server_reaped": 10,
+        "server_returncode_zero": 10
+      },
+      "lock_sha256": "973f1d7f59d5a2807c04defdf122b7225beea761c18e2394783a09b01c5aaa99",
+      "package": {
+        "ecosystem": "npm",
+        "integrity": "sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA==",
+        "name": "@modelcontextprotocol/server-filesystem",
+        "version": "2026.7.10"
+      },
+      "runs": {
+        "attempted": 10,
+        "byte_identical": true,
+        "passed": 10
+      },
+      "runtime": {
+        "name": "node",
+        "version": "24.14.1"
+      },
+      "state": {
+        "outside_sentinel_unchanged": 10,
+        "outside_write_rejected": 10,
+        "written_content_verified": 10
+      },
+      "trace": {
+        "file": "filesystem-2026.7.10-stdio.json",
+        "sha256": "cadabfe883ea80fa289f3a3313f22c02a6d75585da0a297ba2e334ab2e2b35fb",
+        "sha256_counts": {
+          "cadabfe883ea80fa289f3a3313f22c02a6d75585da0a297ba2e334ab2e2b35fb": 10
+        }
+      }
+    }
+  },
+  "transport": "stdio"
+}
