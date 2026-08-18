@@ -66,6 +66,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
 | M3 real SDK clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions and both transports, with 16/16 cells checked against saved traces |
+| M5 application servers | Pinned Filesystem and Git reference servers mutate fresh temporary state, reject tested sibling mutations, and reproduce one normalized trace across ten fresh processes |
 
 ```mermaid
 flowchart LR
@@ -273,8 +274,38 @@ host credentials. CI repeats the same locked check on Ubuntu and Windows.
 
 The Everything server is an external protocol canary, not a real-world
 application server. Passing this slice establishes the external-target
-acceptance path; validation against sandboxed application servers remains the
-next M5 slice.
+acceptance path.
+
+### Application-state acceptance
+
+The next M5 slice pins two official reference servers and their complete
+dependency graphs:
+
+```console
+uv run python scripts/run_m5_filesystem_acceptance.py --check
+uv run python scripts/run_m5_git_acceptance.py --check
+```
+
+[`@modelcontextprotocol/server-filesystem@2026.7.10`](https://www.npmjs.com/package/%40modelcontextprotocol%2Fserver-filesystem/v/2026.7.10)
+writes and reads a file in one fresh allowed directory, then rejects a write to
+a sibling sentinel.
+[`mcp-server-git==2026.8.18`](https://pypi.org/project/mcp-server-git/2026.8.18/)
+creates a branch in one fresh repository, then rejects the same mutation
+against a sibling repository. The Git server always starts with an explicit
+`--repository` boundary. Host-side checks verify the file bytes and Git refs
+instead of trusting tool response text alone.
+
+Each target runs in ten fresh direct processes with an isolated home, cache,
+temporary directory, and credential-free environment. All ten normalized
+traces must be byte-identical; every process must exit with status `0` and be
+reaped. Pull-request CI repeats both locked checks on Ubuntu and Windows, and
+the scheduled workflow covers macOS.
+
+These checks validate the configured server allowlist and repository boundary
+for the tested sibling mutations. They do not provide an operating-system
+sandbox: the pinned reference-server code still runs with the current user's
+host permissions. Arbitrary targets, HTTP transports, symlink/ACL attacks, and
+destructive Git history operations remain outside this slice.
 
 ## Project boundaries
 
@@ -312,7 +343,7 @@ execution boundaries.
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
-| M5 | In progress (M5.1 complete locally) | Pinned external server canary, followed by sandboxed real-world server validation and evidence-backed upstream feedback |
+| M5 | In progress (M5.2 complete locally) | Pinned external canary plus Filesystem/Git application-state validation; upstream feedback requires a reproducible finding |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -332,6 +363,10 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M4 clean-package acceptance](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m4/acceptance.json)
 - [M5 external canary trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/server-everything-2026.7.4-stdio.json)
 - [M5 external canary acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/acceptance.json)
+- [M5 Filesystem acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/filesystem/acceptance.json)
+- [M5 Filesystem trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/filesystem/filesystem-2026.7.10-stdio.json)
+- [M5 Git acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/git/acceptance.json)
+- [M5 Git trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/git/git-2026.8.18-stdio.json)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License

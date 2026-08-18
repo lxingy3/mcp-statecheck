@@ -31,3 +31,17 @@ jobs:
           uv run --locked --no-dev python
           scripts/run_m4_acceptance.py
           --output "${{ runner.temp }}/m4/acceptance.json"
+      - name: Run Filesystem application server acceptance
+        timeout-minutes: 5
+        run: >-
+          uv run --locked --no-dev python
+          scripts/run_m5_filesystem_acceptance.py
+          --check
+          --output "${{ runner.temp }}/m5-filesystem"
+      - name: Run Git application server acceptance
+        timeout-minutes: 8
+        run: >-
+          uv run --locked --no-dev python
+          scripts/run_m5_git_acceptance.py
+          --check
+          --output "${{ runner.temp }}/m5-git"

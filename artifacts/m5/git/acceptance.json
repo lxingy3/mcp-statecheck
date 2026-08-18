@@ -1,0 +1,58 @@
+{
+  "isolation": {
+    "allowed_repository": "fresh temporary repository per run",
+    "ambient_credentials_removed": true,
+    "os_sandbox": false,
+    "repository_flag_required": true
+  },
+  "milestone": "M5",
+  "protocol_version": "2025-11-25",
+  "runtime": {
+    "mcp_statecheck": "0.1.0",
+    "python": "3.12.13",
+    "uv": "uv 0.11.28 (ebf0f43d7 2026-07-07 x86_64-pc-windows-msvc)"
+  },
+  "schema_version": 1,
+  "slice": "git-application-server",
+  "status": "passed",
+  "targets": {
+    "git": {
+      "cleanup": {
+        "server_reaped": 10,
+        "server_returncode_zero": 10
+      },
+      "lock_sha256": "3b66b0e797670a59755cf51d6d8904424f70a3352f02e3b04826659bf652e921",
+      "package": {
+        "ecosystem": "pypi",
+        "name": "mcp-server-git",
+        "sdist_sha256": "96894ca661cfda45174a8882d4ca97d1f5261301c72ccad006ff04f4108f173f",
+        "version": "2026.8.18",
+        "wheel_sha256": "6c32a8e771564122a9bafac373cf871fb3ab540ddc1ba0ee8e9c8c6e9878aef7"
+      },
+      "runs": {
+        "attempted": 10,
+        "byte_identical": true,
+        "passed": 10
+      },
+      "runtime": {
+        "git": "git version 2.51.0.windows.1",
+        "name": "python",
+        "version": "3.12.13"
+      },
+      "state": {
+        "allowed_branch_created": 10,
+        "outside_branch_absent": 10,
+        "outside_branch_rejected": 10,
+        "outside_worktree_clean": 10
+      },
+      "trace": {
+        "file": "git-2026.8.18-stdio.json",
+        "sha256": "04ae1d03cbc218b8fcd7c01d21693bc4db2fe0c865ca2af609804a11ad38a547",
+        "sha256_counts": {
+          "04ae1d03cbc218b8fcd7c01d21693bc4db2fe0c865ca2af609804a11ad38a547": 10
+        }
+      }
+    }
+  },
+  "transport": "stdio"
+}

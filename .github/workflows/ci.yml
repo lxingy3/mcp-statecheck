@@ -56,6 +56,18 @@ jobs:
           uv run python scripts/run_m5_external_canary.py
           --check
           --output "${{ runner.temp }}/m5"
+      - name: Run Filesystem application server acceptance
+        timeout-minutes: 5
+        run: >-
+          uv run python scripts/run_m5_filesystem_acceptance.py
+          --check
+          --output "${{ runner.temp }}/m5-filesystem"
+      - name: Run Git application server acceptance
+        timeout-minutes: 8
+        run: >-
+          uv run python scripts/run_m5_git_acceptance.py
+          --check
+          --output "${{ runner.temp }}/m5-git"
       - name: Smoke test the local Action
         uses: ./
         env:
