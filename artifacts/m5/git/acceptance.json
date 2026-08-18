@@ -21,6 +21,13 @@
         "server_reaped": 10,
         "server_returncode_zero": 10
       },
+      "commit": {
+        "message": "record deterministic state",
+        "oid": "db7841b23b97796c2c497c2b515217ca10525a30",
+        "oid_counts": {
+          "db7841b23b97796c2c497c2b515217ca10525a30": 10
+        }
+      },
       "lock_sha256": "3b66b0e797670a59755cf51d6d8904424f70a3352f02e3b04826659bf652e921",
       "package": {
         "ecosystem": "pypi",
@@ -41,15 +48,32 @@
       },
       "state": {
         "allowed_branch_created": 10,
+        "allowed_worktree_clean": 10,
+        "clean_status_verified": 10,
+        "commit_contents_verified": 10,
+        "commit_created": 10,
+        "commit_log_verified": 10,
+        "commit_oid_matches_head": 10,
+        "commit_parent_verified": 10,
+        "dirty_status_verified": 10,
+        "file_staged": 10,
         "outside_branch_absent": 10,
         "outside_branch_rejected": 10,
-        "outside_worktree_clean": 10
+        "outside_history_unchanged": 10,
+        "outside_worktree_clean": 10,
+        "staged_diff_verified": 10
       },
+      "target_recipe": {
+        "kind": "application-state",
+        "recipe_id": "git-2026.8.18-stdio-stage-commit-boundary",
+        "version": 2
+      },
+      "target_recipe_sha256": "da7124f73a6582d216efdbb7747d69a6020ba4048c6616b9715f3836823a6983",
       "trace": {
         "file": "git-2026.8.18-stdio.json",
-        "sha256": "04ae1d03cbc218b8fcd7c01d21693bc4db2fe0c865ca2af609804a11ad38a547",
+        "sha256": "3910d61490cc153dfb80ce8d9bb70ddba1780ab6999f32904199dcdf634dd48c",
         "sha256_counts": {
-          "04ae1d03cbc218b8fcd7c01d21693bc4db2fe0c865ca2af609804a11ad38a547": 10
+          "3910d61490cc153dfb80ce8d9bb70ddba1780ab6999f32904199dcdf634dd48c": 10
         }
       }
     }

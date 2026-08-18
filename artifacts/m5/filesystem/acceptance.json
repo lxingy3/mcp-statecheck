@@ -38,15 +38,27 @@
         "version": "24.14.1"
       },
       "state": {
+        "allowed_directory_reported": 10,
+        "allowed_edit_verified": 10,
+        "allowed_list_verified": 10,
+        "outside_edit_rejected": 10,
+        "outside_list_rejected": 10,
         "outside_sentinel_unchanged": 10,
         "outside_write_rejected": 10,
-        "written_content_verified": 10
+        "post_rejection_read_verified": 10,
+        "written_and_read_content_verified": 10
       },
+      "target_recipe": {
+        "kind": "application-state",
+        "recipe_id": "filesystem-2026.7.10-stdio-write-edit-boundary",
+        "version": 2
+      },
+      "target_recipe_sha256": "38ff01b56cbb88eafbc782bc0b8c33d55a86b17feaaf600125f24d4e944b2216",
       "trace": {
         "file": "filesystem-2026.7.10-stdio.json",
-        "sha256": "cadabfe883ea80fa289f3a3313f22c02a6d75585da0a297ba2e334ab2e2b35fb",
+        "sha256": "b69710f67e37d969fb9fe168808c7c9cd6e0380ab02b816bc6c60d70c2ecda37",
         "sha256_counts": {
-          "cadabfe883ea80fa289f3a3313f22c02a6d75585da0a297ba2e334ab2e2b35fb": 10
+          "b69710f67e37d969fb9fe168808c7c9cd6e0380ab02b816bc6c60d70c2ecda37": 10
         }
       }
     }

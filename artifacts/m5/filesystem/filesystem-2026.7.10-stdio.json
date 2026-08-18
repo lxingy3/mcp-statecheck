@@ -67,21 +67,50 @@
       "target_action_id": "tools-list"
     },
     {
-      "action_id": "write-file",
+      "action_id": "list-allowed",
       "capabilities": null,
       "kind": "request",
       "mcp_request_id": 3,
       "method": "tools/call",
       "payload": {
+        "arguments": {},
+        "name": "list_allowed_directories"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 6,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "list-allowed-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 7,
+      "stream_id": null,
+      "target_action_id": "list-allowed"
+    },
+    {
+      "action_id": "write-file",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 4,
+      "method": "tools/call",
+      "payload": {
         "arguments": {
-          "content": "mcp-statecheck filesystem acceptance\n",
+          "content": "alpha\nbeta\n",
           "path": "<sandbox>/state.txt"
         },
         "name": "write_file"
       },
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 6,
+      "sequence": 8,
       "stream_id": null,
       "target_action_id": null
     },
@@ -94,15 +123,53 @@
       "payload": null,
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 7,
+      "sequence": 9,
       "stream_id": null,
       "target_action_id": "write-file"
+    },
+    {
+      "action_id": "edit-file",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 5,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "dryRun": false,
+          "edits": [
+            {
+              "newText": "beta-updated",
+              "oldText": "beta"
+            }
+          ],
+          "path": "<sandbox>/state.txt"
+        },
+        "name": "edit_file"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 10,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "edit-file-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 11,
+      "stream_id": null,
+      "target_action_id": "edit-file"
     },
     {
       "action_id": "read-file",
       "capabilities": null,
       "kind": "request",
-      "mcp_request_id": 4,
+      "mcp_request_id": 6,
       "method": "tools/call",
       "payload": {
         "arguments": {
@@ -112,7 +179,7 @@
       },
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 8,
+      "sequence": 12,
       "stream_id": null,
       "target_action_id": null
     },
@@ -125,15 +192,46 @@
       "payload": null,
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 9,
+      "sequence": 13,
       "stream_id": null,
       "target_action_id": "read-file"
+    },
+    {
+      "action_id": "list-directory",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 7,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "path": "<sandbox>"
+        },
+        "name": "list_directory"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 14,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "list-directory-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 15,
+      "stream_id": null,
+      "target_action_id": "list-directory"
     },
     {
       "action_id": "write-outside",
       "capabilities": null,
       "kind": "request",
-      "mcp_request_id": 5,
+      "mcp_request_id": 8,
       "method": "tools/call",
       "payload": {
         "arguments": {
@@ -144,7 +242,7 @@
       },
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 10,
+      "sequence": 16,
       "stream_id": null,
       "target_action_id": null
     },
@@ -157,9 +255,109 @@
       "payload": null,
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 11,
+      "sequence": 17,
       "stream_id": null,
       "target_action_id": "write-outside"
+    },
+    {
+      "action_id": "edit-outside",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 9,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "dryRun": false,
+          "edits": [
+            {
+              "newText": "overwritten",
+              "oldText": "outside"
+            }
+          ],
+          "path": "<outside>/sentinel.txt"
+        },
+        "name": "edit_file"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 18,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "edit-outside-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 19,
+      "stream_id": null,
+      "target_action_id": "edit-outside"
+    },
+    {
+      "action_id": "list-outside",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 10,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "path": "<outside>"
+        },
+        "name": "list_directory"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 20,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "list-outside-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 21,
+      "stream_id": null,
+      "target_action_id": "list-outside"
+    },
+    {
+      "action_id": "read-after-rejections",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 11,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "path": "<sandbox>/state.txt"
+        },
+        "name": "read_text_file"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 22,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "read-after-rejections-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 23,
+      "stream_id": null,
+      "target_action_id": "read-after-rejections"
     }
   ],
   "cleanup": {
@@ -189,7 +387,7 @@
           "version": "0.2.0"
         }
       },
-      "sequence": 12,
+      "sequence": 24,
       "target_action_id": "initialize"
     },
     {
@@ -862,12 +1060,30 @@
           }
         ]
       },
-      "sequence": 13,
+      "sequence": 25,
       "target_action_id": "tools-list"
     },
     {
       "kind": "response",
       "mcp_request_id": 3,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Allowed directories:\n<sandbox>",
+            "type": "text"
+          }
+        ],
+        "structuredContent": {
+          "content": "Allowed directories:\n<sandbox>"
+        }
+      },
+      "sequence": 26,
+      "target_action_id": "list-allowed"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 4,
       "outcome": "success",
       "payload": {
         "content": [
@@ -880,30 +1096,66 @@
           "content": "Successfully wrote to <sandbox>/state.txt"
         }
       },
-      "sequence": 14,
+      "sequence": 27,
       "target_action_id": "write-file"
     },
     {
       "kind": "response",
-      "mcp_request_id": 4,
+      "mcp_request_id": 5,
       "outcome": "success",
       "payload": {
         "content": [
           {
-            "text": "mcp-statecheck filesystem acceptance\n",
+            "text": "```diff\nIndex: <sandbox>/state.txt\n===================================================================\n--- <sandbox>/state.txt\toriginal\n+++ <sandbox>/state.txt\tmodified\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+beta-updated\n```\n\n",
             "type": "text"
           }
         ],
         "structuredContent": {
-          "content": "mcp-statecheck filesystem acceptance\n"
+          "content": "```diff\nIndex: <sandbox>/state.txt\n===================================================================\n--- <sandbox>/state.txt\toriginal\n+++ <sandbox>/state.txt\tmodified\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+beta-updated\n```\n\n"
         }
       },
-      "sequence": 15,
+      "sequence": 28,
+      "target_action_id": "edit-file"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 6,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "alpha\nbeta-updated\n",
+            "type": "text"
+          }
+        ],
+        "structuredContent": {
+          "content": "alpha\nbeta-updated\n"
+        }
+      },
+      "sequence": 29,
       "target_action_id": "read-file"
     },
     {
       "kind": "response",
-      "mcp_request_id": 5,
+      "mcp_request_id": 7,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "[FILE] state.txt",
+            "type": "text"
+          }
+        ],
+        "structuredContent": {
+          "content": "[FILE] state.txt"
+        }
+      },
+      "sequence": 30,
+      "target_action_id": "list-directory"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 8,
       "outcome": "success",
       "payload": {
         "content": [
@@ -914,13 +1166,68 @@
         ],
         "isError": true
       },
-      "sequence": 16,
+      "sequence": 31,
       "target_action_id": "write-outside"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 9,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Access denied - path outside allowed directories: <outside>/sentinel.txt not in <sandbox>",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      },
+      "sequence": 32,
+      "target_action_id": "edit-outside"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 10,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Access denied - path outside allowed directories: <outside> not in <sandbox>",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      },
+      "sequence": 33,
+      "target_action_id": "list-outside"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 11,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "alpha\nbeta-updated\n",
+            "type": "text"
+          }
+        ],
+        "structuredContent": {
+          "content": "alpha\nbeta-updated\n"
+        }
+      },
+      "sequence": 34,
+      "target_action_id": "read-after-rejections"
     }
   ],
   "protocol_version": "2025-11-25",
   "schema_version": 1,
   "sdk_version": "@modelcontextprotocol/server-filesystem@2026.7.10",
   "seed": 0,
+  "target_recipe": {
+    "kind": "application-state",
+    "recipe_id": "filesystem-2026.7.10-stdio-write-edit-boundary",
+    "version": 2
+  },
   "transport": "stdio"
 }

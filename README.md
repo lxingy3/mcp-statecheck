@@ -66,7 +66,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
 | M3 real SDK clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions and both transports, with 16/16 cells checked against saved traces |
-| M5 application servers | Pinned Filesystem and Git reference servers mutate fresh temporary state, reject tested sibling mutations, and reproduce one normalized trace across ten fresh processes |
+| M5 application servers | Release-bound, allowlisted recipes drive pinned Filesystem and Git reference servers through verified state transitions and reproduce one normalized trace across ten fresh processes |
 
 ```mermaid
 flowchart LR
@@ -287,13 +287,27 @@ uv run python scripts/run_m5_git_acceptance.py --check
 ```
 
 [`@modelcontextprotocol/server-filesystem@2026.7.10`](https://www.npmjs.com/package/%40modelcontextprotocol%2Fserver-filesystem/v/2026.7.10)
-writes and reads a file in one fresh allowed directory, then rejects a write to
-a sibling sentinel.
+reports its allowed directory, writes and edits one file, reads and lists the
+result, rejects write/edit/list operations against a sibling sentinel, and
+then serves the edited file again.
 [`mcp-server-git==2026.8.18`](https://pypi.org/project/mcp-server-git/2026.8.18/)
-creates a branch in one fresh repository, then rejects the same mutation
-against a sibling repository. The Git server always starts with an explicit
-`--repository` boundary. Host-side checks verify the file bytes and Git refs
-instead of trusting tool response text alone.
+observes an untracked file, stages its exact path, reports the staged diff,
+creates a deterministic commit, reads the two-entry history, observes the
+clean worktree, creates a branch, and rejects a sibling-repository mutation.
+The Git server always starts with an explicit `--repository` boundary.
+Host-side checks verify exact file bytes, directory contents, commit metadata,
+tree contents, history length, worktree state, and Git refs instead of trusting
+tool response text alone.
+
+Each benchmark includes a strict three-field recipe manifest. Version `2` uses
+the `application-state` kind and an immutable recipe ID that binds the target
+name, release, transport, and fixed scenario. Extra fields, duplicate keys,
+non-finite numbers, unknown IDs, and target-version mismatches are rejected
+before external tool discovery. A recipe cannot supply executable commands,
+argument arrays, URLs, environments, paths, selectable package coordinates, or
+tool calls; the runner maps the allowlisted ID to package-owned actions and
+fresh temporary paths. Recipe metadata is recorded in the trace; the acceptance
+report also records the manifest SHA-256.
 
 Each target runs in ten fresh direct processes with an isolated home, cache,
 temporary directory, and credential-free environment. All ten normalized
@@ -306,6 +320,17 @@ for the tested sibling mutations. They do not provide an operating-system
 sandbox: the pinned reference-server code still runs with the current user's
 host permissions. Arbitrary targets, HTTP transports, symlink/ACL attacks, and
 destructive Git history operations remain outside this slice.
+
+The Git executable is supplied by the host rather than the Python lock. Its
+version is recorded in the acceptance report. The runner validates dirty and
+clean state semantically, stores stable markers instead of Git's changeable
+long-status prose, and retains the staged diff and log as upgrade-review
+evidence.
+
+Application recipes belong to these checkout-only acceptance runners. They are
+not accepted by the installed `mcp-statecheck replay` command and are not a
+general external-target replay interface. The installed command remains limited
+to version `1` `controlled-fixture` recipes and package-owned peers.
 
 ## Project boundaries
 
@@ -343,7 +368,7 @@ execution boundaries.
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
-| M5 | In progress (M5.2 complete locally) | Pinned external canary plus Filesystem/Git application-state validation; upstream feedback requires a reproducible finding |
+| M5 | In progress (M5.3 complete locally) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -365,8 +390,10 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M5 external canary acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/acceptance.json)
 - [M5 Filesystem acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/filesystem/acceptance.json)
 - [M5 Filesystem trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/filesystem/filesystem-2026.7.10-stdio.json)
+- [M5 Filesystem recipe](https://github.com/lxingy3/mcp-statecheck/blob/main/benchmarks/external/server-filesystem/recipe.json)
 - [M5 Git acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/git/acceptance.json)
 - [M5 Git trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/git/git-2026.8.18-stdio.json)
+- [M5 Git recipe](https://github.com/lxingy3/mcp-statecheck/blob/main/benchmarks/external/server-git/recipe.json)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License

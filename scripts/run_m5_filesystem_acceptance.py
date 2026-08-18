@@ -19,6 +19,11 @@ from mcp_statecheck.model import Action, ActionKind
 from mcp_statecheck.trace import TraceRecorder
 
 if __package__:
+    from .m5_application_recipes import (
+        FILESYSTEM_RECIPE_ID,
+        ApplicationRecipe,
+        load_application_recipe,
+    )
     from .run_m4_acceptance import AcceptanceError, _atomic_write, _run
     from .run_m5_external_canary import (
         _copy_file,
@@ -28,6 +33,11 @@ if __package__:
         _sha256,
     )
 else:
+    from m5_application_recipes import (
+        FILESYSTEM_RECIPE_ID,
+        ApplicationRecipe,
+        load_application_recipe,
+    )
     from run_m4_acceptance import AcceptanceError, _atomic_write, _run
     from run_m5_external_canary import (
         _copy_file,
@@ -53,12 +63,25 @@ PROTOCOL_VERSION = "2025-11-25"
 NODE_VERSION = "24.14.1"
 RUNS = 10
 TRACE_NAME = f"filesystem-{VERSION}-stdio.json"
-CONTENT = "mcp-statecheck filesystem acceptance\n"
+CONTENT = "alpha\nbeta\n"
+FINAL_CONTENT = "alpha\nbeta-updated\n"
 OUTSIDE_CONTENT = "outside sentinel\n"
 TIMEOUT_SECONDS = 30
 
 
-def _locked_target() -> tuple[str, str]:
+def _application_recipe() -> ApplicationRecipe:
+    try:
+        return load_application_recipe(
+            BENCHMARK / "recipe.json",
+            target="filesystem",
+            target_version=VERSION,
+        )
+    except ValueError as exc:
+        raise AcceptanceError(f"Filesystem target recipe is invalid: {exc}") from exc
+
+
+def _locked_target() -> tuple[str, str, ApplicationRecipe]:
+    recipe = _application_recipe()
     manifest = _load_object(BENCHMARK / "package.json", label="Filesystem manifest")
     lock = _load_object(BENCHMARK / "package-lock.json", label="Filesystem lock")
     if manifest.get("private") is not True:
@@ -84,23 +107,73 @@ def _locked_target() -> tuple[str, str]:
         raise AcceptanceError(
             "Filesystem target metadata does not match the pinned release"
         )
-    return INTEGRITY, _sha256(BENCHMARK / "package-lock.json")
+    return INTEGRITY, _sha256(BENCHMARK / "package-lock.json"), recipe
 
 
-def _actions(sandbox: Path, outside: Path) -> tuple[Action, ...]:
+def _actions(
+    sandbox: Path,
+    outside: Path,
+    recipe: ApplicationRecipe,
+) -> tuple[Action, ...]:
+    if recipe.recipe_id != FILESYSTEM_RECIPE_ID:
+        raise AcceptanceError("Filesystem target recipe has no fixed action plan")
     calls = (
+        ("list-allowed", 3, "list_allowed_directories", {}),
         (
             "write-file",
-            3,
+            4,
             "write_file",
             {"path": str(sandbox / "state.txt"), "content": CONTENT},
         ),
-        ("read-file", 4, "read_text_file", {"path": str(sandbox / "state.txt")}),
+        (
+            "edit-file",
+            5,
+            "edit_file",
+            {
+                "path": str(sandbox / "state.txt"),
+                "edits": [{"oldText": "beta", "newText": "beta-updated"}],
+                "dryRun": False,
+            },
+        ),
+        (
+            "read-file",
+            6,
+            "read_text_file",
+            {"path": str(sandbox / "state.txt")},
+        ),
+        (
+            "list-directory",
+            7,
+            "list_directory",
+            {"path": str(sandbox)},
+        ),
         (
             "write-outside",
-            5,
+            8,
             "write_file",
             {"path": str(outside / "sentinel.txt"), "content": "overwritten\n"},
+        ),
+        (
+            "edit-outside",
+            9,
+            "edit_file",
+            {
+                "path": str(outside / "sentinel.txt"),
+                "edits": [{"oldText": "outside", "newText": "overwritten"}],
+                "dryRun": False,
+            },
+        ),
+        (
+            "list-outside",
+            10,
+            "list_directory",
+            {"path": str(outside)},
+        ),
+        (
+            "read-after-rejections",
+            11,
+            "read_text_file",
+            {"path": str(sandbox / "state.txt")},
         ),
     )
     actions = [
@@ -242,7 +315,8 @@ def _canonical_work_root(path: str | Path) -> Path:
 async def _probe_filesystem(
     *, node: Path, server: Path, sandbox: Path, outside: Path, trace: Path
 ) -> None:
-    actions = _actions(sandbox, outside)
+    recipe = _application_recipe()
+    actions = _actions(sandbox, outside, recipe)
     result = await execute_stdio(
         actions, (str(node), str(server), str(sandbox)), timeout=10
     )
@@ -267,22 +341,59 @@ async def _probe_filesystem(
         if isinstance(tools, list)
         else set()
     )
-    if not {"write_file", "read_text_file"}.issubset(names):
+    if not {
+        "edit_file",
+        "list_allowed_directories",
+        "list_directory",
+        "read_text_file",
+        "write_file",
+    }.issubset(names):
         raise AcceptanceError("Filesystem server is missing required tools")
 
+    allowed_payload = _payload(_response(result, "list-allowed"), "list-allowed")
     write_payload = _payload(_response(result, "write-file"), "write-file")
+    edit_payload = _payload(_response(result, "edit-file"), "edit-file")
     read_payload = _payload(_response(result, "read-file"), "read-file")
+    list_payload = _payload(_response(result, "list-directory"), "list-directory")
     outside_payload = _payload(_response(result, "write-outside"), "write-outside")
-    if write_payload.get("isError") is True or CONTENT not in _text(read_payload):
-        raise AcceptanceError("Filesystem write/read state transition failed")
-    if outside_payload.get("isError") is not True:
-        raise AcceptanceError("Filesystem server accepted an outside write")
-    if (sandbox / "state.txt").read_text(encoding="utf-8") != CONTENT:
+    outside_edit = _payload(_response(result, "edit-outside"), "edit-outside")
+    outside_list = _payload(_response(result, "list-outside"), "list-outside")
+    final_read = _payload(
+        _response(result, "read-after-rejections"), "read-after-rejections"
+    )
+    if f"Allowed directories:\n{sandbox}" not in _text(allowed_payload):
+        raise AcceptanceError("Filesystem server did not report the allowed directory")
+    if write_payload.get("isError") is True:
+        raise AcceptanceError("Filesystem write failed")
+    edit_text = _text(edit_payload)
+    if edit_payload.get("isError") is True or not {
+        "-beta",
+        "+beta-updated",
+    }.issubset(edit_text.splitlines()):
+        raise AcceptanceError("Filesystem edit state transition failed")
+    if FINAL_CONTENT not in _text(read_payload):
+        raise AcceptanceError("Filesystem read did not return the edited content")
+    if "[FILE] state.txt" not in _text(list_payload):
+        raise AcceptanceError("Filesystem directory listing omitted state.txt")
+    for action_id, payload in (
+        ("write", outside_payload),
+        ("edit", outside_edit),
+        ("list", outside_list),
+    ):
+        if payload.get("isError") is not True:
+            raise AcceptanceError(
+                f"Filesystem server accepted an outside {action_id} operation"
+            )
+    if FINAL_CONTENT not in _text(final_read):
+        raise AcceptanceError("Filesystem session failed after rejected operations")
+    if (sandbox / "state.txt").read_bytes() != FINAL_CONTENT.encode():
         raise AcceptanceError("Filesystem sandbox content differs from the tool result")
     if {path.name for path in sandbox.iterdir()} != {"state.txt"}:
         raise AcceptanceError("Filesystem server created unexpected sandbox entries")
-    if (outside / "sentinel.txt").read_text(encoding="utf-8") != OUTSIDE_CONTENT:
+    if (outside / "sentinel.txt").read_bytes() != OUTSIDE_CONTENT.encode():
         raise AcceptanceError("Filesystem server changed the outside sentinel")
+    if {path.name for path in outside.iterdir()} != {"sentinel.txt"}:
+        raise AcceptanceError("Filesystem server created an outside entry")
 
     aliases = {sandbox: "<sandbox>", outside: "<outside>"}
     recorder = TraceRecorder(
@@ -298,6 +409,7 @@ async def _probe_filesystem(
             "outcome": "passed",
             "profile": "application-state",
         },
+        target_recipe=recipe.target_recipe,
     )
     for action in actions:
         normalized = _replace_paths(action.to_dict(), aliases)
@@ -335,7 +447,7 @@ def _probe_main(argv: Sequence[str]) -> int:
 
 
 def run(output: Path, *, check: bool) -> dict[str, object]:
-    integrity, lock_sha256 = _locked_target()
+    integrity, lock_sha256, recipe = _locked_target()
     node = shutil.which("node")
     npm = shutil.which("npm")
     if node is None or npm is None:
@@ -426,6 +538,8 @@ def run(output: Path, *, check: bool) -> dict[str, object]:
         first = trace_paths[0].read_bytes()
         if any(path.read_bytes() != first for path in trace_paths[1:]):
             raise AcceptanceError("Filesystem traces were not byte-identical")
+        if _application_recipe() != recipe:
+            raise AcceptanceError("Filesystem target recipe changed during acceptance")
         trace_sha256 = hashlib.sha256(first).hexdigest()
         _publish_trace(
             trace_paths[0],
@@ -455,9 +569,17 @@ def run(output: Path, *, check: bool) -> dict[str, object]:
                         "passed": RUNS,
                         "byte_identical": True,
                     },
+                    "target_recipe": recipe.target_recipe,
+                    "target_recipe_sha256": recipe.sha256,
                     "state": {
-                        "written_content_verified": RUNS,
+                        "allowed_directory_reported": RUNS,
+                        "allowed_edit_verified": RUNS,
+                        "allowed_list_verified": RUNS,
+                        "written_and_read_content_verified": RUNS,
                         "outside_write_rejected": RUNS,
+                        "outside_edit_rejected": RUNS,
+                        "outside_list_rejected": RUNS,
+                        "post_rejection_read_verified": RUNS,
                         "outside_sentinel_unchanged": RUNS,
                     },
                     "cleanup": {
