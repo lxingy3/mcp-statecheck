@@ -67,10 +67,202 @@
       "target_action_id": "tools-list"
     },
     {
-      "action_id": "create-branch",
+      "action_id": "status-dirty",
       "capabilities": null,
       "kind": "request",
       "mcp_request_id": 3,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_status"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 6,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "status-dirty-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 7,
+      "stream_id": null,
+      "target_action_id": "status-dirty"
+    },
+    {
+      "action_id": "add-file",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 4,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "files": [
+            "state.txt"
+          ],
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_add"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 8,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "add-file-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 9,
+      "stream_id": null,
+      "target_action_id": "add-file"
+    },
+    {
+      "action_id": "diff-staged",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 5,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "context_lines": 3,
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_diff_staged"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 10,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "diff-staged-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 11,
+      "stream_id": null,
+      "target_action_id": "diff-staged"
+    },
+    {
+      "action_id": "commit-change",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 6,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "message": "record deterministic state",
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_commit"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 12,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "commit-change-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 13,
+      "stream_id": null,
+      "target_action_id": "commit-change"
+    },
+    {
+      "action_id": "log-history",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 7,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "max_count": 2,
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_log"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 14,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "log-history-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 15,
+      "stream_id": null,
+      "target_action_id": "log-history"
+    },
+    {
+      "action_id": "status-clean",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 8,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "repo_path": "<allowed-repo>"
+        },
+        "name": "git_status"
+      },
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 16,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "status-clean-response",
+      "capabilities": null,
+      "kind": "response",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 17,
+      "stream_id": null,
+      "target_action_id": "status-clean"
+    },
+    {
+      "action_id": "create-branch",
+      "capabilities": null,
+      "kind": "request",
+      "mcp_request_id": 9,
       "method": "tools/call",
       "payload": {
         "arguments": {
@@ -82,7 +274,7 @@
       },
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 6,
+      "sequence": 18,
       "stream_id": null,
       "target_action_id": null
     },
@@ -95,7 +287,7 @@
       "payload": null,
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 7,
+      "sequence": 19,
       "stream_id": null,
       "target_action_id": "create-branch"
     },
@@ -103,7 +295,7 @@
       "action_id": "create-outside",
       "capabilities": null,
       "kind": "request",
-      "mcp_request_id": 4,
+      "mcp_request_id": 10,
       "method": "tools/call",
       "payload": {
         "arguments": {
@@ -115,7 +307,7 @@
       },
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 8,
+      "sequence": 20,
       "stream_id": null,
       "target_action_id": null
     },
@@ -128,7 +320,7 @@
       "payload": null,
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 9,
+      "sequence": 21,
       "stream_id": null,
       "target_action_id": "create-outside"
     },
@@ -136,7 +328,7 @@
       "action_id": "list-branches",
       "capabilities": null,
       "kind": "request",
-      "mcp_request_id": 5,
+      "mcp_request_id": 11,
       "method": "tools/call",
       "payload": {
         "arguments": {
@@ -147,7 +339,7 @@
       },
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 10,
+      "sequence": 22,
       "stream_id": null,
       "target_action_id": null
     },
@@ -160,7 +352,7 @@
       "payload": null,
       "protocol_version": null,
       "resume_token": null,
-      "sequence": 11,
+      "sequence": 23,
       "stream_id": null,
       "target_action_id": "list-branches"
     }
@@ -193,7 +385,7 @@
           "version": "1.29.0"
         }
       },
-      "sequence": 12,
+      "sequence": 24,
       "target_action_id": "initialize"
     },
     {
@@ -604,12 +796,108 @@
           }
         ]
       },
-      "sequence": 13,
+      "sequence": 25,
       "target_action_id": "tools-list"
     },
     {
       "kind": "response",
       "mcp_request_id": 3,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Repository status:\n<dirty: state.txt>",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 26,
+      "target_action_id": "status-dirty"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 4,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Files staged successfully",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 27,
+      "target_action_id": "add-file"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 5,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Staged changes:\ndiff --git a/state.txt b/state.txt\nnew file mode 100644\nindex 0000000..fbbee86\n--- /dev/null\n+++ b/state.txt\n@@ -0,0 +1,2 @@\n+alpha\n+beta",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 28,
+      "target_action_id": "diff-staged"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 6,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Changes committed successfully with hash db7841b23b97796c2c497c2b515217ca10525a30",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 29,
+      "target_action_id": "commit-change"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 7,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Commit history:\nCommit: 'db7841b23b97796c2c497c2b515217ca10525a30'\nAuthor: <git.Actor \"mcp-statecheck fixture <fixture@mcp-statecheck.invalid>\">\nDate: 2000-01-02 00:00:00+00:00\nMessage: 'record deterministic state'\n\nCommit: '503a8e002e7439f240c2a6bbc240c5ee4bbf3391'\nAuthor: <git.Actor \"mcp-statecheck fixture <fixture@mcp-statecheck.invalid>\">\nDate: 2000-01-01 00:00:00+00:00\nMessage: 'initial fixture\\n'\n",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 30,
+      "target_action_id": "log-history"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 8,
+      "outcome": "success",
+      "payload": {
+        "content": [
+          {
+            "text": "Repository status:\n<clean>",
+            "type": "text"
+          }
+        ],
+        "isError": false
+      },
+      "sequence": 31,
+      "target_action_id": "status-clean"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 9,
       "outcome": "success",
       "payload": {
         "content": [
@@ -620,12 +908,12 @@
         ],
         "isError": false
       },
-      "sequence": 14,
+      "sequence": 32,
       "target_action_id": "create-branch"
     },
     {
       "kind": "response",
-      "mcp_request_id": 4,
+      "mcp_request_id": 10,
       "outcome": "success",
       "payload": {
         "content": [
@@ -636,12 +924,12 @@
         ],
         "isError": true
       },
-      "sequence": 15,
+      "sequence": 33,
       "target_action_id": "create-outside"
     },
     {
       "kind": "response",
-      "mcp_request_id": 5,
+      "mcp_request_id": 11,
       "outcome": "success",
       "payload": {
         "content": [
@@ -652,7 +940,7 @@
         ],
         "isError": false
       },
-      "sequence": 16,
+      "sequence": 34,
       "target_action_id": "list-branches"
     }
   ],
@@ -660,5 +948,10 @@
   "schema_version": 1,
   "sdk_version": "mcp-server-git==2026.8.18",
   "seed": 0,
+  "target_recipe": {
+    "kind": "application-state",
+    "recipe_id": "git-2026.8.18-stdio-stage-commit-boundary",
+    "version": 2
+  },
   "transport": "stdio"
 }

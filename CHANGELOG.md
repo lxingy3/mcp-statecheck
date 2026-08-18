@@ -8,6 +8,12 @@
 - Added pinned Filesystem and Git application-server acceptance with real
   state mutations, tested sibling-mutation rejection, ten-run deterministic
   evidence, isolated credentials, and Linux/Windows/macOS automation.
+- Added strict, release-bound application recipe manifests that cannot encode
+  executable inputs and are validated before external tool discovery.
+- Extended Filesystem acceptance through write, edit, read, list, and three
+  sibling-boundary checks, with exact host-side byte and directory oracles.
+- Extended Git acceptance through status, add, staged diff, deterministic
+  commit, log, clean-state, branch, and sibling-repository checks.
 
 ## 0.1.0 - 2026-07-30
 

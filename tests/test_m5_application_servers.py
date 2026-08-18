@@ -1,12 +1,19 @@
 import hashlib
 import json
+import re
 import sys
 import tomllib
 from pathlib import Path
 
+import anyio
 import pytest
 
-from scripts import run_m5_filesystem_acceptance, run_m5_git_acceptance
+from mcp_statecheck.replay import ReplayInfrastructureError, replay_artifact
+from scripts import (
+    m5_application_recipes,
+    run_m5_filesystem_acceptance,
+    run_m5_git_acceptance,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / "artifacts" / "m5" / "filesystem"
@@ -33,8 +40,183 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_m52_filesystem_server_mutates_only_its_sandbox() -> None:
+def _tool_calls(
+    trace: dict[str, object],
+) -> list[tuple[str, str, dict[str, object]]]:
+    actions = trace["canonical_actions"]
+    assert isinstance(actions, list)
+    calls: list[tuple[str, str, dict[str, object]]] = []
+    for action in actions:
+        if not isinstance(action, dict) or action.get("method") != "tools/call":
+            continue
+        payload = action["payload"]
+        assert isinstance(payload, dict)
+        arguments = payload["arguments"]
+        assert isinstance(arguments, dict)
+        calls.append((action["action_id"], payload["name"], arguments))
+    return calls
+
+
+@pytest.mark.parametrize(
+    "target,target_version,recipe_id",
+    (
+        (
+            "filesystem",
+            FILESYSTEM_VERSION,
+            "filesystem-2026.7.10-stdio-write-edit-boundary",
+        ),
+        ("git", GIT_VERSION, "git-2026.8.18-stdio-stage-commit-boundary"),
+    ),
+)
+def test_m53_application_recipes_are_versioned_and_allowlisted(
+    target: str,
+    target_version: str,
+    recipe_id: str,
+) -> None:
+    path = ROOT / "benchmarks" / "external" / f"server-{target}" / "recipe.json"
+
+    recipe = m5_application_recipes.load_application_recipe(
+        path,
+        target=target,
+        target_version=target_version,
+    )
+
+    assert recipe.target_recipe == {
+        "kind": "application-state",
+        "recipe_id": recipe_id,
+        "version": 2,
+    }
+    assert recipe.sha256 == _sha256(path)
+
+
+def test_m53_application_recipe_is_bound_to_the_target_release() -> None:
+    path = ROOT / "benchmarks" / "external" / "server-filesystem" / "recipe.json"
+
+    with pytest.raises(ValueError, match="not allowlisted"):
+        m5_application_recipes.load_application_recipe(
+            path,
+            target="filesystem",
+            target_version="2026.7.9",
+        )
+
+
+def test_m53_application_recipe_rejects_executable_or_unknown_input(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "recipe.json"
+    sentinel = tmp_path / "executed.txt"
+    invalid_recipes = (
+        {
+            "kind": "application-state",
+            "recipe_id": "filesystem-2026.7.10-stdio-write-edit-boundary",
+            "version": 2,
+            "command": ["powershell", "-Command", f"Set-Content {sentinel} bad"],
+        },
+        {
+            "kind": "application-state",
+            "recipe_id": "filesystem-2026.7.10-stdio-write-edit-boundary",
+            "version": True,
+        },
+        {
+            "kind": "application-state",
+            "recipe_id": "not-allowlisted",
+            "version": 2,
+        },
+    )
+
+    for value in invalid_recipes:
+        path.write_text(json.dumps(value), encoding="utf-8")
+        with pytest.raises(ValueError):
+            m5_application_recipes.load_application_recipe(
+                path,
+                target="filesystem",
+                target_version=FILESYSTEM_VERSION,
+            )
+
+    assert not sentinel.exists()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b'{"kind":"application-state","kind":"application-state",'
+        b'"recipe_id":"filesystem-2026.7.10-stdio-write-edit-boundary",'
+        b'"version":2}',
+        b'{"kind":"application-state",'
+        b'"recipe_id":"filesystem-2026.7.10-stdio-write-edit-boundary",'
+        b'"version":NaN}',
+    ),
+)
+def test_m53_application_recipe_rejects_ambiguous_json(
+    tmp_path: Path,
+    payload: bytes,
+) -> None:
+    path = tmp_path / "recipe.json"
+    path.write_bytes(payload)
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        m5_application_recipes.load_application_recipe(
+            path,
+            target="filesystem",
+            target_version=FILESYSTEM_VERSION,
+        )
+
+
+@pytest.mark.parametrize(
+    "runner,label",
+    (
+        (run_m5_filesystem_acceptance, "Filesystem"),
+        (run_m5_git_acceptance, "Git"),
+    ),
+)
+def test_m53_invalid_recipe_is_rejected_before_tool_discovery(
+    runner: object,
+    label: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    benchmark = tmp_path / "benchmark"
+    benchmark.mkdir()
+    (benchmark / "recipe.json").write_text(
+        json.dumps(
+            {
+                "kind": "application-state",
+                "recipe_id": "not-allowlisted",
+                "version": 2,
+                "command": ["untrusted"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def unexpected_discovery(_: str) -> str:
+        pytest.fail("external tool discovery ran before recipe validation")
+
+    monkeypatch.setattr(runner, "BENCHMARK", benchmark)
+    monkeypatch.setattr(runner.shutil, "which", unexpected_discovery)
+
+    with pytest.raises(runner.AcceptanceError, match=f"{label} target recipe"):
+        runner.run(tmp_path / "output", check=False)
+
+
+@pytest.mark.parametrize(
+    "trace",
+    (
+        ARTIFACTS / f"filesystem-{FILESYSTEM_VERSION}-stdio.json",
+        ROOT / "artifacts" / "m5" / "git" / f"git-{GIT_VERSION}-stdio.json",
+    ),
+)
+def test_m53_application_recipes_are_not_public_replay_inputs(trace: Path) -> None:
+    with pytest.raises(
+        ReplayInfrastructureError,
+        match="target_recipe fields",
+    ):
+        anyio.run(replay_artifact, trace, 1, 5)
+
+
+def test_m53_filesystem_recipe_verifies_edit_list_and_boundary_state() -> None:
     benchmark = ROOT / "benchmarks" / "external" / "server-filesystem"
+    recipe_path = benchmark / "recipe.json"
     manifest = _load(benchmark / "package.json")
     lock_path = benchmark / "package-lock.json"
     lock = _load(lock_path)
@@ -56,6 +238,50 @@ def test_m52_filesystem_server_mutates_only_its_sandbox() -> None:
     assert trace["fixture_id"] == "filesystem-sandbox-state"
     assert trace["protocol_version"] == "2025-11-25"
     assert trace["transport"] == "stdio"
+    assert trace["target_recipe"] == {
+        "kind": "application-state",
+        "recipe_id": "filesystem-2026.7.10-stdio-write-edit-boundary",
+        "version": 2,
+    }
+    assert _tool_calls(trace) == [
+        ("list-allowed", "list_allowed_directories", {}),
+        (
+            "write-file",
+            "write_file",
+            {"content": "alpha\nbeta\n", "path": "<sandbox>/state.txt"},
+        ),
+        (
+            "edit-file",
+            "edit_file",
+            {
+                "dryRun": False,
+                "edits": [{"newText": "beta-updated", "oldText": "beta"}],
+                "path": "<sandbox>/state.txt",
+            },
+        ),
+        ("read-file", "read_text_file", {"path": "<sandbox>/state.txt"}),
+        ("list-directory", "list_directory", {"path": "<sandbox>"}),
+        (
+            "write-outside",
+            "write_file",
+            {"content": "overwritten\n", "path": "<outside>/sentinel.txt"},
+        ),
+        (
+            "edit-outside",
+            "edit_file",
+            {
+                "dryRun": False,
+                "edits": [{"newText": "overwritten", "oldText": "outside"}],
+                "path": "<outside>/sentinel.txt",
+            },
+        ),
+        ("list-outside", "list_directory", {"path": "<outside>"}),
+        (
+            "read-after-rejections",
+            "read_text_file",
+            {"path": "<sandbox>/state.txt"},
+        ),
+    ]
     assert trace["generation"] == {
         "engine": "mcp-statecheck M5 acceptance",
         "outcome": "passed",
@@ -78,12 +304,24 @@ def test_m52_filesystem_server_mutates_only_its_sandbox() -> None:
     for action_id in (
         "initialize",
         "tools-list",
+        "list-allowed",
         "write-file",
+        "edit-file",
         "read-file",
+        "list-directory",
         "write-outside",
+        "edit-outside",
+        "list-outside",
+        "read-after-rejections",
     ):
         assert responses[action_id]["outcome"] == "success"
-    assert responses["write-outside"]["payload"]["isError"] is True
+    assert "Allowed directories:\n<sandbox>" in _tool_text(responses["list-allowed"])
+    assert "beta-updated" in _tool_text(responses["edit-file"])
+    assert "alpha\nbeta-updated\n" in _tool_text(responses["read-file"])
+    assert "[FILE] state.txt" in _tool_text(responses["list-directory"])
+    assert "alpha\nbeta-updated\n" in _tool_text(responses["read-after-rejections"])
+    for action_id in ("write-outside", "edit-outside", "list-outside"):
+        assert _tool_rejected(responses[action_id])
 
     acceptance = _load(ARTIFACTS / "acceptance.json")
     filesystem = acceptance["targets"]["filesystem"]
@@ -99,10 +337,18 @@ def test_m52_filesystem_server_mutates_only_its_sandbox() -> None:
         "byte_identical": True,
         "passed": 10,
     }
+    assert filesystem["target_recipe"] == trace["target_recipe"]
+    assert filesystem["target_recipe_sha256"] == _sha256(recipe_path)
     assert filesystem["state"] == {
+        "allowed_directory_reported": 10,
+        "allowed_edit_verified": 10,
+        "allowed_list_verified": 10,
         "outside_sentinel_unchanged": 10,
+        "outside_edit_rejected": 10,
+        "outside_list_rejected": 10,
         "outside_write_rejected": 10,
-        "written_content_verified": 10,
+        "post_rejection_read_verified": 10,
+        "written_and_read_content_verified": 10,
     }
     assert filesystem["trace"] == {
         "file": trace_path.name,
@@ -119,8 +365,21 @@ def _tool_rejected(response: dict[str, object]) -> bool:
     return isinstance(payload, dict) and payload.get("isError") is True
 
 
-def test_m52_git_server_mutates_only_its_allowed_repository() -> None:
+def _tool_text(response: dict[str, object]) -> str:
+    payload = response["payload"]
+    assert isinstance(payload, dict)
+    content = payload["content"]
+    assert isinstance(content, list)
+    return "\n".join(
+        item["text"]
+        for item in content
+        if isinstance(item, dict) and isinstance(item.get("text"), str)
+    )
+
+
+def test_m53_git_recipe_verifies_stage_commit_and_boundary_state() -> None:
     benchmark = ROOT / "benchmarks" / "external" / "server-git"
+    recipe_path = benchmark / "recipe.json"
     with (benchmark / "pyproject.toml").open("rb") as handle:
         manifest = tomllib.load(handle)
     with (benchmark / "uv.lock").open("rb") as handle:
@@ -148,6 +407,61 @@ def test_m52_git_server_mutates_only_its_allowed_repository() -> None:
     assert trace["fixture_id"] == "git-repository-state"
     assert trace["protocol_version"] == "2025-11-25"
     assert trace["transport"] == "stdio"
+    assert trace["target_recipe"] == {
+        "kind": "application-state",
+        "recipe_id": "git-2026.8.18-stdio-stage-commit-boundary",
+        "version": 2,
+    }
+    assert _tool_calls(trace) == [
+        ("status-dirty", "git_status", {"repo_path": "<allowed-repo>"}),
+        (
+            "add-file",
+            "git_add",
+            {"files": ["state.txt"], "repo_path": "<allowed-repo>"},
+        ),
+        (
+            "diff-staged",
+            "git_diff_staged",
+            {"context_lines": 3, "repo_path": "<allowed-repo>"},
+        ),
+        (
+            "commit-change",
+            "git_commit",
+            {
+                "message": "record deterministic state",
+                "repo_path": "<allowed-repo>",
+            },
+        ),
+        (
+            "log-history",
+            "git_log",
+            {"max_count": 2, "repo_path": "<allowed-repo>"},
+        ),
+        ("status-clean", "git_status", {"repo_path": "<allowed-repo>"}),
+        (
+            "create-branch",
+            "git_create_branch",
+            {
+                "base_branch": "main",
+                "branch_name": "m5-state",
+                "repo_path": "<allowed-repo>",
+            },
+        ),
+        (
+            "create-outside",
+            "git_create_branch",
+            {
+                "base_branch": "main",
+                "branch_name": "escape-attempt",
+                "repo_path": "<outside-repo>",
+            },
+        ),
+        (
+            "list-branches",
+            "git_branch",
+            {"branch_type": "local", "repo_path": "<allowed-repo>"},
+        ),
+    ]
     assert trace["generation"] == {
         "engine": "mcp-statecheck M5 acceptance",
         "outcome": "passed",
@@ -171,10 +485,33 @@ def test_m52_git_server_mutates_only_its_allowed_repository() -> None:
     for action_id in (
         "initialize",
         "tools-list",
+        "status-dirty",
+        "add-file",
+        "diff-staged",
+        "commit-change",
+        "log-history",
+        "status-clean",
         "create-branch",
         "list-branches",
     ):
         assert responses[action_id]["outcome"] == "success"
+    assert _tool_text(responses["status-dirty"]) == (
+        "Repository status:\n<dirty: state.txt>"
+    )
+    assert "Files staged successfully" in _tool_text(responses["add-file"])
+    staged_diff = _tool_text(responses["diff-staged"])
+    assert "diff --git a/state.txt b/state.txt" in staged_diff
+    assert "+alpha" in staged_diff
+    assert "+beta" in staged_diff
+    commit_text = _tool_text(responses["commit-change"])
+    commit_match = re.search(r"\b[0-9a-f]{40}\b", commit_text)
+    assert commit_match is not None
+    commit_oid = commit_match.group()
+    assert run_m5_git_acceptance._trace_commit_oid(trace_path) == commit_oid
+    log_text = _tool_text(responses["log-history"])
+    assert commit_oid in log_text
+    assert "record deterministic state" in log_text
+    assert _tool_text(responses["status-clean"]) == ("Repository status:\n<clean>")
     assert _tool_rejected(responses["create-outside"])
 
     acceptance = _load(artifacts / "acceptance.json")
@@ -192,11 +529,29 @@ def test_m52_git_server_mutates_only_its_allowed_repository() -> None:
         "byte_identical": True,
         "passed": 10,
     }
+    assert git["target_recipe"] == trace["target_recipe"]
+    assert git["target_recipe_sha256"] == _sha256(recipe_path)
     assert git["state"] == {
         "allowed_branch_created": 10,
+        "allowed_worktree_clean": 10,
+        "clean_status_verified": 10,
+        "commit_contents_verified": 10,
+        "commit_created": 10,
+        "commit_log_verified": 10,
+        "commit_oid_matches_head": 10,
+        "commit_parent_verified": 10,
+        "dirty_status_verified": 10,
+        "file_staged": 10,
         "outside_branch_absent": 10,
         "outside_branch_rejected": 10,
+        "outside_history_unchanged": 10,
         "outside_worktree_clean": 10,
+        "staged_diff_verified": 10,
+    }
+    assert git["commit"] == {
+        "message": "record deterministic state",
+        "oid": commit_oid,
+        "oid_counts": {commit_oid: 10},
     }
     assert git["trace"] == {
         "file": trace_path.name,
@@ -256,6 +611,11 @@ def test_m52_git_server_environment_excludes_host_credentials(
     assert environment["GIT_CONFIG_NOSYSTEM"] == "1"
     assert environment["GIT_TERMINAL_PROMPT"] == "0"
     assert environment["GCM_INTERACTIVE"] == "never"
+    assert environment["GIT_AUTHOR_DATE"] == "2000-01-02 00:00:00 +0000"
+    assert environment["GIT_COMMITTER_DATE"] == "2000-01-02 00:00:00 +0000"
+    assert environment["LANG"] == "C"
+    assert environment["LC_ALL"] == "C"
+    assert environment["TZ"] == "UTC"
     assert environment["HOME"] == str(tmp_path / "home")
 
 

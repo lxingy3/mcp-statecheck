@@ -206,6 +206,32 @@ uses the installed package under Python isolated mode; HTTP replay always uses
 the package-owned peer on a dynamic localhost port. Commands, URLs,
 environments, and working directories cannot be encoded in a recipe.
 
+M5 application acceptance uses a separate recipe contract in checkout-only
+runners. Version 2 accepts the `application-state` kind and a strict
+`recipe_id`; the two IDs bind the pinned target release, stdio transport, and
+fixed Filesystem or Git scenario. The manifest contains exactly `version`,
+`kind`, and `recipe_id`. It cannot supply executable commands, argument arrays,
+URLs, environments, paths, selectable package coordinates, or tool calls.
+Duplicate JSON keys, non-finite values, unknown IDs, and target-release
+mismatches are rejected before runtime discovery or process creation. Runner
+code maps each ID to a fixed action plan and derives every writable path from a
+fresh temporary root.
+The recipe and its SHA-256 are recorded as acceptance provenance.
+
+These passing application traces are not failure reproducers. The installed
+`replay` command therefore continues to accept only version 1
+`controlled-fixture` recipes and does not dispatch M5 application recipes. The
+M5 checks validate the configured server boundary for specific sibling
+operations; process isolation and temporary directories do not constitute an
+operating-system sandbox.
+
+The Git package and Python dependency graph are locked, but the Git executable
+is host-provided and its version is recorded. The runner checks worktree state
+with porcelain v1 and normalizes the server's changeable long-status prose to
+semantic dirty/clean markers before trace comparison. Staged diffs, commit
+objects, and log output remain visible evidence that must be reviewed when the
+host Git version changes.
+
 SARIF results carry the stable failure signature but do not invent source
 locations for protocol traces. They are suitable as deterministic artifacts;
 repository annotations remain out of scope until the CLI has an explicit,
