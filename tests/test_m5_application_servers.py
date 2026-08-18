@@ -259,6 +259,95 @@ def test_m52_git_server_environment_excludes_host_credentials(
     assert environment["HOME"] == str(tmp_path / "home")
 
 
+def test_m52_git_acceptance_requires_the_current_exact_python(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert run_m5_git_acceptance._acceptance_python() == Path(sys.executable).resolve()
+
+    monkeypatch.setattr(
+        run_m5_git_acceptance.platform, "python_version", lambda: "3.12.12"
+    )
+
+    with pytest.raises(
+        run_m5_git_acceptance.AcceptanceError,
+        match="requires Python 3.12.13, found 3.12.12",
+    ):
+        run_m5_git_acceptance._acceptance_python()
+
+
+def test_m52_trace_mismatch_preserves_observed_without_rewriting_golden(
+    tmp_path: Path,
+) -> None:
+    observed = tmp_path / "observed.json"
+    checked = tmp_path / "trace.json"
+    observed.write_bytes(b'{"value":"observed"}\n')
+    checked.write_bytes(b'{"value":"checked"}\n')
+
+    with pytest.raises(
+        run_m5_filesystem_acceptance.AcceptanceError,
+        match="observed SHA-256",
+    ):
+        run_m5_filesystem_acceptance._publish_trace(
+            observed,
+            checked,
+            checked=checked,
+            check=True,
+            label="Filesystem",
+        )
+
+    assert checked.read_bytes() == b'{"value":"checked"}\n'
+    assert (tmp_path / "observed-trace.json").read_bytes() == observed.read_bytes()
+
+
+def test_m52_missing_golden_preserves_observed_evidence(tmp_path: Path) -> None:
+    observed = tmp_path / "source.json"
+    checked = tmp_path / "trace.json"
+    observed.write_bytes(b'{"value":"observed"}\n')
+
+    with pytest.raises(
+        run_m5_filesystem_acceptance.AcceptanceError,
+        match="checked-in Filesystem trace is missing",
+    ):
+        run_m5_filesystem_acceptance._publish_trace(
+            observed,
+            checked,
+            checked=checked,
+            check=True,
+            label="Filesystem",
+        )
+
+    assert not checked.exists()
+    assert (tmp_path / "observed-trace.json").read_bytes() == observed.read_bytes()
+
+
+def test_m52_matching_trace_uses_standard_output_name(tmp_path: Path) -> None:
+    observed = tmp_path / "source.json"
+    checked = tmp_path / "checked.json"
+    output = tmp_path / "output" / "trace.json"
+    observed.write_bytes(b'{"value":"same"}\n')
+    checked.write_bytes(observed.read_bytes())
+
+    run_m5_filesystem_acceptance._publish_trace(
+        observed,
+        output,
+        checked=checked,
+        check=True,
+        label="Filesystem",
+    )
+
+    assert output.read_bytes() == observed.read_bytes()
+    assert not (output.parent / "observed-trace.json").exists()
+
+
+def test_m52_filesystem_work_root_is_canonical(tmp_path: Path) -> None:
+    raw = tmp_path / "parent" / ".." / "work"
+
+    canonical = run_m5_filesystem_acceptance._canonical_work_root(raw)
+
+    assert canonical == raw.resolve()
+    assert canonical == canonical.resolve()
+
+
 def test_m52_path_normalization_covers_raw_and_resolved_spellings(
     tmp_path: Path,
 ) -> None:

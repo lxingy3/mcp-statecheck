@@ -23,21 +23,27 @@ from mcp_statecheck.trace import TraceRecorder
 if __package__:
     from .run_m4_acceptance import AcceptanceError, _atomic_write, _run
     from .run_m5_external_canary import (
-        _copy_file,
         _isolated_environment,
         _runtime_version,
         _sha256,
     )
-    from .run_m5_filesystem_acceptance import _replace_paths
+    from .run_m5_filesystem_acceptance import (
+        _canonical_work_root,
+        _publish_trace,
+        _replace_paths,
+    )
 else:
     from run_m4_acceptance import AcceptanceError, _atomic_write, _run
     from run_m5_external_canary import (
-        _copy_file,
         _isolated_environment,
         _runtime_version,
         _sha256,
     )
-    from run_m5_filesystem_acceptance import _replace_paths
+    from run_m5_filesystem_acceptance import (
+        _canonical_work_root,
+        _publish_trace,
+        _replace_paths,
+    )
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "external" / "server-git"
@@ -299,6 +305,15 @@ def _git_environment(work: Path, git: str) -> dict[str, str]:
     return environment
 
 
+def _acceptance_python() -> Path:
+    version = platform.python_version()
+    if version != PYTHON_VERSION:
+        raise AcceptanceError(
+            f"Git acceptance requires Python {PYTHON_VERSION}, found {version}"
+        )
+    return Path(sys.executable).resolve()
+
+
 def _init_repo(repo: Path, *, git: str, environment: Mapping[str, str]) -> None:
     repo.mkdir(parents=True)
     _run(
@@ -392,9 +407,10 @@ def run(output: Path, *, check: bool) -> dict[str, object]:
     git = shutil.which("git")
     if uv is None or git is None:
         raise AcceptanceError("uv and Git are required for Git server acceptance")
+    acceptance_python = _acceptance_python()
 
     with tempfile.TemporaryDirectory(prefix="mcp-statecheck-m5-git-") as temporary:
-        work = Path(temporary)
+        work = _canonical_work_root(temporary)
         environment = _git_environment(work, git)
         install = work / "install"
         install.mkdir()
@@ -411,7 +427,7 @@ def run(output: Path, *, check: bool) -> dict[str, object]:
                 "--no-build",
                 "--no-install-project",
                 "--python",
-                PYTHON_VERSION,
+                acceptance_python,
             ],
             cwd=work,
             environment=environment,
@@ -492,16 +508,13 @@ def run(output: Path, *, check: bool) -> dict[str, object]:
         if any(path.read_bytes() != first for path in trace_paths[1:]):
             raise AcceptanceError("Git traces were not byte-identical")
         trace_sha256 = hashlib.sha256(first).hexdigest()
-        if check:
-            checked = CHECKED_ARTIFACTS / TRACE_NAME
-            try:
-                expected = checked.read_bytes()
-            except OSError as exc:
-                raise AcceptanceError("checked-in Git trace is missing") from exc
-            if first != expected:
-                raise AcceptanceError("Git trace differs from checked-in evidence")
-
-        _copy_file(trace_paths[0], output / TRACE_NAME)
+        _publish_trace(
+            trace_paths[0],
+            output / TRACE_NAME,
+            checked=CHECKED_ARTIFACTS / TRACE_NAME,
+            check=check,
+            label="Git",
+        )
         summary: dict[str, object] = {
             "schema_version": 1,
             "milestone": "M5",

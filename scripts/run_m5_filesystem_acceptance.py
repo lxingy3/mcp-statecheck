@@ -199,6 +199,44 @@ def _replace_paths(value: object, aliases: Mapping[Path, str]) -> object:
     return value
 
 
+def _publish_trace(
+    observed: Path,
+    destination: Path,
+    *,
+    checked: Path,
+    check: bool,
+    label: str,
+) -> bytes:
+    payload = observed.read_bytes()
+    if check:
+        diagnostic = destination.with_name(f"observed-{destination.name}")
+        observed_sha256 = hashlib.sha256(payload).hexdigest()
+        try:
+            expected = checked.read_bytes()
+        except OSError as exc:
+            _copy_file(observed, diagnostic)
+            raise AcceptanceError(
+                f"checked-in {label} trace is missing; "
+                f"observed SHA-256 {observed_sha256}; "
+                f"observed trace written to {diagnostic}"
+            ) from exc
+        if payload != expected:
+            expected_sha256 = hashlib.sha256(expected).hexdigest()
+            _copy_file(observed, diagnostic)
+            raise AcceptanceError(
+                f"{label} trace differs from checked-in evidence "
+                f"(expected SHA-256 {expected_sha256}, "
+                f"observed SHA-256 {observed_sha256}); "
+                f"observed trace written to {diagnostic}"
+            )
+    _copy_file(observed, destination)
+    return payload
+
+
+def _canonical_work_root(path: str | Path) -> Path:
+    return Path(path).resolve()
+
+
 async def _probe_filesystem(
     *, node: Path, server: Path, sandbox: Path, outside: Path, trace: Path
 ) -> None:
@@ -304,7 +342,7 @@ def run(output: Path, *, check: bool) -> dict[str, object]:
     with tempfile.TemporaryDirectory(
         prefix="mcp-statecheck-m5-filesystem-"
     ) as temporary:
-        work = Path(temporary)
+        work = _canonical_work_root(temporary)
         environment = _isolated_environment(work)
         install = work / "install"
         install.mkdir()
@@ -387,18 +425,13 @@ def run(output: Path, *, check: bool) -> dict[str, object]:
         if any(path.read_bytes() != first for path in trace_paths[1:]):
             raise AcceptanceError("Filesystem traces were not byte-identical")
         trace_sha256 = hashlib.sha256(first).hexdigest()
-        if check:
-            checked = CHECKED_ARTIFACTS / TRACE_NAME
-            try:
-                expected = checked.read_bytes()
-            except OSError as exc:
-                raise AcceptanceError("checked-in Filesystem trace is missing") from exc
-            if first != expected:
-                raise AcceptanceError(
-                    "Filesystem trace differs from checked-in evidence"
-                )
-
-        _copy_file(trace_paths[0], output / TRACE_NAME)
+        _publish_trace(
+            trace_paths[0],
+            output / TRACE_NAME,
+            checked=CHECKED_ARTIFACTS / TRACE_NAME,
+            check=check,
+            label="Filesystem",
+        )
         summary: dict[str, object] = {
             "schema_version": 1,
             "milestone": "M5",
