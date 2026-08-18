@@ -49,6 +49,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "external" / "server-git"
 CHECKED_ARTIFACTS = ROOT / "artifacts" / "m5" / "git"
 DEFAULT_OUTPUT = Path("artifacts/m5/git")
+CHECK_OUTPUT = Path("artifacts/tmp/m5/git")
 PACKAGE = "mcp-server-git"
 VERSION = "2026.8.18"
 WHEEL_SHA256 = "6c32a8e771564122a9bafac373cf871fb3ab540ddc1ba0ee8e9c8c6e9878aef7"
@@ -594,16 +595,13 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        if args.check and args.output is None:
-            with tempfile.TemporaryDirectory(
-                prefix="mcp-statecheck-m5-git-check-"
-            ) as temporary:
-                summary = run(Path(temporary), check=True)
-            destination = "checked-in evidence"
-        else:
-            output = args.output or DEFAULT_OUTPUT
-            summary = run(output, check=args.check)
-            destination = str(output)
+        output = args.output or (CHECK_OUTPUT if args.check else DEFAULT_OUTPUT)
+        summary = run(output, check=args.check)
+        destination = (
+            f"checked-in evidence; output {output}"
+            if args.check and args.output is None
+            else str(output)
+        )
     except (AcceptanceError, OSError) as exc:
         print(f"M5 Git acceptance failed: {exc}", file=sys.stderr)
         return 2

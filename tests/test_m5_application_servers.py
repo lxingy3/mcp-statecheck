@@ -236,8 +236,8 @@ def test_m52_check_without_output_does_not_rewrite_checked_evidence(
 
     assert runner.main() == 0
     assert captured["check"] is True
+    assert captured["output"] == runner.CHECK_OUTPUT
     assert captured["output"] != runner.DEFAULT_OUTPUT
-    assert not Path(captured["output"]).exists()
 
 
 def test_m52_git_server_environment_excludes_host_credentials(
@@ -326,6 +326,9 @@ def test_m52_matching_trace_uses_standard_output_name(tmp_path: Path) -> None:
     output = tmp_path / "output" / "trace.json"
     observed.write_bytes(b'{"value":"same"}\n')
     checked.write_bytes(observed.read_bytes())
+    diagnostic = output.parent / "observed-trace.json"
+    diagnostic.parent.mkdir(parents=True)
+    diagnostic.write_bytes(b"stale diagnostic\n")
 
     run_m5_filesystem_acceptance._publish_trace(
         observed,
@@ -336,7 +339,7 @@ def test_m52_matching_trace_uses_standard_output_name(tmp_path: Path) -> None:
     )
 
     assert output.read_bytes() == observed.read_bytes()
-    assert not (output.parent / "observed-trace.json").exists()
+    assert not diagnostic.exists()
 
 
 def test_m52_filesystem_work_root_is_canonical(tmp_path: Path) -> None:

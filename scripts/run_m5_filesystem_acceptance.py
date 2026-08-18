@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK = ROOT / "benchmarks" / "external" / "server-filesystem"
 CHECKED_ARTIFACTS = ROOT / "artifacts" / "m5" / "filesystem"
 DEFAULT_OUTPUT = Path("artifacts/m5/filesystem")
+CHECK_OUTPUT = Path("artifacts/tmp/m5/filesystem")
 PACKAGE = "@modelcontextprotocol/server-filesystem"
 VERSION = "2026.7.10"
 INTEGRITY = "sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA=="
@@ -229,6 +230,7 @@ def _publish_trace(
                 f"observed SHA-256 {observed_sha256}); "
                 f"observed trace written to {diagnostic}"
             )
+        diagnostic.unlink(missing_ok=True)
     _copy_file(observed, destination)
     return payload
 
@@ -500,16 +502,13 @@ def main() -> int:
     )
     args = parser.parse_args()
     try:
-        if args.check and args.output is None:
-            with tempfile.TemporaryDirectory(
-                prefix="mcp-statecheck-m5-filesystem-check-"
-            ) as temporary:
-                summary = run(Path(temporary), check=True)
-            destination = "checked-in evidence"
-        else:
-            output = args.output or DEFAULT_OUTPUT
-            summary = run(output, check=args.check)
-            destination = str(output)
+        output = args.output or (CHECK_OUTPUT if args.check else DEFAULT_OUTPUT)
+        summary = run(output, check=args.check)
+        destination = (
+            f"checked-in evidence; output {output}"
+            if args.check and args.output is None
+            else str(output)
+        )
     except (AcceptanceError, OSError) as exc:
         print(f"M5 Filesystem acceptance failed: {exc}", file=sys.stderr)
         return 2
