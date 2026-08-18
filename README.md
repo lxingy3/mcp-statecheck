@@ -368,7 +368,7 @@ execution boundaries.
 | M2 | Complete (5/5 fixtures) | Hypothesis state machine, invariants, differential oracle, signatures, shrinking, and replay |
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
-| M5 | In progress (M5.3 complete locally) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
+| M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
