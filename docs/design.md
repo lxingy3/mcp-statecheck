@@ -6,11 +6,11 @@
 against isolated MCP implementations, normalizes observations, compares
 behavior, and reduces failures to deterministic traces.
 
-Version 0.1 supports MCP `2025-06-18` and `2025-11-25` only. It covers stdio
-and Streamable HTTP, including initialization, capability negotiation,
-concurrent requests, cancellation, sessions, SSE resumption, and transport
-errors. The stateless `2026-07-28` revision requires a separate action profile.
-Tasks and other agent protocols are outside this release.
+Version 0.1 supports MCP `2025-06-18` and `2025-11-25`. It covers stdio and
+Streamable HTTP, including initialization, capability negotiation, concurrent
+requests, cancellation, sessions, SSE resumption, and transport errors. M6.1
+adds the stateless `2026-07-28` revision through a separate action profile.
+Tasks and other agent protocols remain outside the implemented core.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -68,6 +68,8 @@ value.
 - M3: isolated Python and TypeScript v1/v2 runners and the real matrix.
 - M4: CLI, JUnit/SARIF/HTML output, GitHub Action, user documentation, and the
   v0.1 release gate.
+- M5: pinned external-server canaries and release-bound application recipes.
+- M6.1: a separate modern stateless SDK matrix for MCP `2026-07-28`.
 
 M1 fixtures preserve the observations needed for later detection. They do not
 claim the final fixture gate, which requires M2 shrinking and replay.
@@ -174,9 +176,10 @@ Version 0.1 exposes four installed commands:
 - `report` validates and redacts an existing schema v1 artifact before
   projecting it to canonical JSON, JUnit XML, SARIF 2.1.0, or a script-free
   single-file HTML trace explorer.
-- `matrix` runs the locked Python/TypeScript v1/v2 clients across both protocol
-  revisions and transports. It uses the bundled canonical benchmark unless the
-  caller provides an explicit config.
+- `matrix` runs either the locked 16-cell legacy benchmark or the separate
+  four-cell modern stateless benchmark. An explicit config selects its own
+  declared action profile; bundled profiles and config paths are mutually
+  exclusive.
 - `replay` loads a schema v1 failure artifact and repeats its minimized
   reproducer ten times against a package-owned controlled peer.
 
@@ -251,6 +254,29 @@ allowlisted adapter and runner inputs into a temporary workspace before
 `uv sync` or `npm ci`; clean-package acceptance probes the sdist assets and
 hashes package resources before and after execution to prove they remain
 unchanged.
+
+## M6.1 implementation status
+
+MCP `2026-07-28` removes the initialize handshake, protocol-level sessions,
+and standalone Streamable HTTP GET streams. Extending the M3 version dimension
+would therefore run the wrong canonical sequence. M6.1 defines an independent
+`modern-stateless` profile with five actions: connect, discover, list tools,
+call the controlled `echo` tool, and close.
+
+The profile pins Python `mcp 2.1.1` under Python 3.12.13 and TypeScript
+`@modelcontextprotocol/client 2.0.0` under Node.js 24.14.1. Both runners execute
+over stdio and Streamable HTTP. The peer verifies one `server/discover`,
+`tools/list`, and `tools/call` sequence; complete namespaced request metadata;
+and, on HTTP, protocol, method, and tool-name routing headers. It rejects any
+session creation, closing DELETE, or standalone GET stream.
+
+Each SDK and transport also runs a hanging tool call under the outer deadline.
+Acceptance requires the adapter and stdio peer to be reaped or the HTTP
+listener to close. The four saved traces must be byte-identical across three
+fresh matrix runs, and clean-package acceptance reruns them from the built
+wheel while probing the sdist-owned inputs. Tasks, subscriptions, modern
+cancellation, arbitrary targets, and generated `deep` sequences are not part of
+M6.1.
 
 The `deep` profile is deliberately absent from v0.1. Package-controlled replay
 closes the deterministic fixture gate without treating the M2 fault-injection

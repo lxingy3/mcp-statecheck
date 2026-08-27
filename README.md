@@ -60,13 +60,14 @@ tool, verifies response shapes, and confirms transport cleanup.
 | stdio | JSON Lines subprocess transport with deadlines, bounded stderr, and child cleanup |
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
-| Installed CLI | Explicit-target checks, allowlisted replay, offline reports, and the locked 16-cell SDK matrix with `0`/`1`/`2` exit codes |
+| Installable CLI | Explicit-target checks, allowlisted replay, offline reports, and separate locked legacy and modern SDK matrices with `0`/`1`/`2` exit codes |
 | Reports | Deterministic JSON, JUnit XML, SARIF 2.1.0, and a script-free single-file HTML trace explorer |
 | Automation | A JSON-argv composite Action plus scheduled macOS runs of the full SDK matrix and clean-package acceptance |
 | Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
 | M3 real SDK clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions and both transports, with 16/16 cells checked against saved traces |
 | M5 application servers | Release-bound, allowlisted recipes drive pinned Filesystem and Git reference servers through verified state transitions and reproduce one normalized trace across ten fresh processes |
+| M6.1 modern SDK clients | A separate four-cell `2026-07-28` profile covers Python `mcp 2.1.1` and TypeScript client `2.0.0` over stdio and Streamable HTTP |
 
 ```mermaid
 flowchart LR
@@ -211,6 +212,31 @@ negotiation, session deletion, and listener cleanup. The check also forces one
 Python and one TypeScript SDK call per transport to hit the outer timeout and
 verifies cleanup.
 
+## Modern stateless matrix
+
+MCP `2026-07-28` is a separate protocol era, not another version cell in the
+legacy matrix. The M6.1 profile pins Python `mcp 2.1.1` and TypeScript
+`@modelcontextprotocol/client 2.0.0`, then runs both clients over stdio and
+Streamable HTTP.
+
+```console
+$ uv run mcp-statecheck matrix --profile modern --check --output artifacts/m6/matrix
+Matrix passed: 4/4 locked SDK transport cells match artifacts
+```
+
+Each cell sends `server/discover`, `tools/list`, and one `echo` tool call. The
+oracle checks namespaced per-request metadata; the required HTTP protocol,
+method, and tool-name routing headers; the absence of protocol sessions and
+standalone GET streams; and normalized differential equality. Four additional
+hang probes force each SDK and transport through the outer deadline and prove
+adapter, child-process, and listener cleanup. Three complete runs must remain
+byte-identical before the checked evidence is accepted.
+
+The default legacy profile and its 16 saved traces remain unchanged. This is a
+bounded valid-client profile: Tasks, subscriptions, modern cancellation
+sequences, custom `x-mcp-header` parameters, arbitrary targets, and the `deep`
+profile remain outside this slice.
+
 ## Reports and CI integration
 
 Saved traces are the single JSON source of truth. Reports validate schema v1,
@@ -246,10 +272,10 @@ wheel's actual console script against real stdio and localhost Streamable HTTP
 peers, replays all five controlled failures ten times from an untrusted working
 directory, parses all four outputs for each transport, proves HTTP session
 deletion and listener/process cleanup, probes the sdist-installed matrix assets,
-runs the wheel-installed 16-cell SDK matrix from an empty directory, compares
-every trace with the checked-in goldens, verifies package resources remain
-byte-identical, and checks that a runtime authorization secret does not reach
-artifacts or process output:
+runs the wheel-installed 16-cell legacy and four-cell modern SDK matrices from
+an empty directory, compares every trace with the checked-in goldens, verifies
+both profiles' package resources remain byte-identical, and checks that a
+runtime authorization secret does not reach artifacts or process output:
 
 ```console
 uv run python scripts/run_m4_acceptance.py
@@ -344,10 +370,10 @@ rather than replacing it.
 Schema lockfiles, API compatibility checks, and protocols other than MCP are
 outside the v0.1 scope.
 
-The v0.1 model and matrix target MCP `2025-06-18` and `2025-11-25`. The
-newly released `2026-07-28` revision removes protocol-level sessions, the
-initialize handshake, and SSE resumption, so it requires a separate stateless
-action profile rather than a version-string-only matrix cell.
+The v0.1 model and legacy matrix target MCP `2025-06-18` and `2025-11-25`.
+M6.1 adds `2026-07-28` through a separate stateless action profile because that
+revision removes protocol-level sessions, the initialize handshake, and SSE
+resumption. It is not treated as a version-string-only legacy matrix cell.
 
 The installed CLI exposes the bounded `check`, `replay`, `report`, and `matrix`
 commands.
@@ -369,6 +395,7 @@ execution boundaries.
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
+| M6 | In progress (M6.1 complete) | Separate MCP `2026-07-28` stateless client profile; Tasks and deeper generated coverage remain planned |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -385,7 +412,7 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M2 SSE resume failure](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m2/second-sse-resume-token-loss.json)
 - [M3 real SDK client traces](https://github.com/lxingy3/mcp-statecheck/tree/v0.1.0/artifacts/m3)
 - [M3 benchmark pins](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/benchmarks/mcp-v2.toml)
-- [M4 clean-package acceptance](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m4/acceptance.json)
+- [M4 v0.1 clean-package acceptance](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/artifacts/m4/acceptance.json)
 - [M5 external canary trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/server-everything-2026.7.4-stdio.json)
 - [M5 external canary acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/acceptance.json)
 - [M5 Filesystem acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/filesystem/acceptance.json)
@@ -394,6 +421,11 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M5 Git acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/git/acceptance.json)
 - [M5 Git trace](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m5/git/git-2026.8.18-stdio.json)
 - [M5 Git recipe](https://github.com/lxingy3/mcp-statecheck/blob/main/benchmarks/external/server-git/recipe.json)
+- [M6.1 modern profile notes](https://github.com/lxingy3/mcp-statecheck/blob/main/docs/research/2026-08-27-modern-profile.md)
+- [M6.1 clean-package acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m4/acceptance.json)
+- [M6.1 acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6/acceptance.json)
+- [M6.1 real SDK client traces](https://github.com/lxingy3/mcp-statecheck/tree/main/artifacts/m6/matrix)
+- [M6.1 benchmark pins](https://github.com/lxingy3/mcp-statecheck/blob/main/benchmarks/mcp-modern.toml)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License
