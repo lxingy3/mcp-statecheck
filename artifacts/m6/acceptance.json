@@ -1,0 +1,52 @@
+{
+  "action_profile": "modern-stateless",
+  "failure_cleanup": {
+    "adapter_reaped": true,
+    "hard_timeout_seconds": 5,
+    "http_listener_closed": true,
+    "probes": 4,
+    "stdio_peer_reaped": true
+  },
+  "matrix": {
+    "byte_identical": true,
+    "cells": 4,
+    "golden_match": true,
+    "runs": 3,
+    "traces": {
+      "stdio/python-v2-2026-07-28.json": "748d640537465fa26d081494d430003245006ed0292e57446b7675ac2ee87247",
+      "stdio/typescript-v2-2026-07-28.json": "828dece21d50acb0340de7e75330315bdd6cd0a2b0515670d28bfbed583bf520",
+      "streamable-http/python-v2-2026-07-28.json": "e6795828f018ca865da1735edaf6beded6dc135baa74c9a5f40c55f325a45488",
+      "streamable-http/typescript-v2-2026-07-28.json": "017d7526abf87a0bc19db8287ca28f259927a785a85f8122276b7e2e16e64521"
+    }
+  },
+  "milestone": "M6.1",
+  "protocol_version": "2026-07-28",
+  "runners": {
+    "python-v2": {
+      "package": "mcp",
+      "runtime": "python",
+      "runtime_version": "3.12.13",
+      "version": "2.1.1"
+    },
+    "typescript-v2": {
+      "package": "@modelcontextprotocol/client",
+      "runtime": "node",
+      "runtime_version": "24.14.1",
+      "version": "2.0.0"
+    }
+  },
+  "schema_version": 1,
+  "slice": "modern-stateless-client-matrix",
+  "status": "passed",
+  "transports": [
+    "stdio",
+    "streamable-http"
+  ],
+  "wire_invariants": {
+    "initialize_absent": true,
+    "request_meta_present": true,
+    "routable_http_headers_present": true,
+    "sessions_absent": true,
+    "standalone_get_absent": true
+  }
+}

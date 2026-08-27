@@ -31,6 +31,11 @@ jobs:
           uv run --locked --no-dev python
           scripts/run_m4_acceptance.py
           --output "${{ runner.temp }}/m4/acceptance.json"
+      - name: Run M6.1 modern stateless acceptance
+        timeout-minutes: 5
+        run: >-
+          uv run --locked --no-dev python
+          scripts/run_m6_modern_acceptance.py --check
       - name: Run Filesystem application server acceptance
         timeout-minutes: 5
         run: >-

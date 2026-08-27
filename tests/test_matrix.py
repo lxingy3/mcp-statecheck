@@ -6,6 +6,7 @@ import pytest
 
 import mcp_statecheck.cli as cli
 import mcp_statecheck.matrix as matrix
+from mcp_statecheck.transports.stdio import StdioError
 
 
 def test_runtime_materialization_copies_only_locked_inputs(tmp_path: Path) -> None:
@@ -61,12 +62,44 @@ def test_default_matrix_config_is_the_locked_16_cell_benchmark() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("source", "loader", "runner"),
+    (
+        ("mcp-v2.toml", matrix._load_runners, "python-v1"),
+        ("mcp-modern.toml", matrix._load_modern_runners, "python-v2"),
+    ),
+)
+def test_matrix_configs_reject_duplicate_runner_ids(
+    tmp_path: Path,
+    source: str,
+    loader: object,
+    runner: str,
+) -> None:
+    config = tmp_path / source
+    original = (Path(__file__).parents[1] / "benchmarks" / source).read_text(
+        encoding="utf-8"
+    )
+    config.write_text(
+        original
+        + "\n[[runners]]\n"
+        + f'id = "{runner}"\n'
+        + 'runtime = "duplicate"\n'
+        + 'package = "duplicate"\n'
+        + 'version = "0"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(matrix.MatrixInfrastructureError, match="runner IDs"):
+        loader(config)  # type: ignore[operator]
+
+
 def test_matrix_cli_dispatches_the_package_runner(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config = tmp_path / "matrix.toml"
+    config.write_text("schema_version = 1\n", encoding="utf-8")
     output = tmp_path / "output"
     observed: list[tuple[Path | None, Path]] = []
 
@@ -80,6 +113,113 @@ def test_matrix_cli_dispatches_the_package_runner(
     assert observed == [(config, output)]
     assert capsys.readouterr().out == (
         "Matrix passed: wrote 16 locked SDK transport traces\n"
+    )
+
+
+def test_matrix_cli_selects_the_bundled_modern_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output = tmp_path / "modern"
+    observed: list[tuple[Path | None, Path]] = []
+
+    def run(config_path: Path | None, output_path: Path) -> list[Path]:
+        observed.append((config_path, output_path))
+        return [output_path / f"{index}.json" for index in range(4)]
+
+    monkeypatch.setattr(matrix, "run_matrix", run)
+
+    assert cli.main(["matrix", "--profile", "modern", "--output", str(output)]) == 0
+    assert observed == [(matrix._modern_config(), output)]
+    assert capsys.readouterr().out == (
+        "Matrix passed: wrote 4 locked SDK transport traces\n"
+    )
+
+
+def test_matrix_cli_resolves_a_custom_modern_profile_in_check_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = tmp_path / "modern.toml"
+    config.write_text(
+        'schema_version = 1\naction_profile = "modern-stateless"\n',
+        encoding="utf-8",
+    )
+    output = tmp_path / "modern"
+    observed: list[tuple[Path | None, Path]] = []
+
+    def check(config_path: Path | None, output_path: Path) -> None:
+        observed.append((config_path, output_path))
+
+    monkeypatch.setattr(matrix, "check_matrix", check)
+
+    assert cli.main(["matrix", str(config), "--check", "--output", str(output)]) == 0
+    assert observed == [(config, output)]
+    assert capsys.readouterr().out == (
+        "Matrix passed: 4/4 locked SDK transport cells match artifacts\n"
+    )
+
+
+def test_matrix_cli_rejects_profile_and_config_together(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = tmp_path / "matrix.toml"
+    config.write_text("schema_version = 1\n", encoding="utf-8")
+
+    assert cli.main(["matrix", str(config), "--profile", "legacy"]) == 2
+    assert "--profile cannot be combined with a config path" in capsys.readouterr().err
+
+
+def test_matrix_cli_handles_a_missing_bundled_modern_config(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def missing() -> Path:
+        raise matrix.MatrixInfrastructureError("bundled modern config is missing")
+
+    monkeypatch.setattr(matrix, "_modern_config", missing)
+
+    assert cli.main(["matrix", "--profile", "modern"]) == 2
+    assert "bundled modern config is missing" in capsys.readouterr().err
+
+
+def test_matrix_cli_uses_separate_default_output_for_modern_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[Path] = []
+
+    def run(_config: Path | None, output: Path) -> list[Path]:
+        observed.append(output)
+        return [output / f"{index}.json" for index in range(4)]
+
+    monkeypatch.setattr(matrix, "run_matrix", run)
+
+    assert cli.main(["matrix", "--profile", "modern"]) == 0
+    assert observed == [Path("artifacts/m6/matrix")]
+
+
+def test_matrix_module_entry_reports_custom_modern_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = tmp_path / "modern.toml"
+    config.write_text('action_profile = "modern-stateless"\n', encoding="utf-8")
+    output = tmp_path / "matrix"
+    observed: list[tuple[Path | None, Path]] = []
+
+    def check(config_path: Path | None, output_path: Path) -> None:
+        observed.append((config_path, output_path))
+
+    monkeypatch.setattr(matrix, "check_matrix", check)
+
+    assert matrix.script_main([str(config), "--check", "--output", str(output)]) == 0
+    assert observed == [(config, output)]
+    assert capsys.readouterr().out == (
+        "M6.1 client matrix passed: 4/4 real SDK transport cells match artifacts\n"
     )
 
 
@@ -160,6 +300,344 @@ def test_started_sdk_timeout_is_a_compatibility_failure(
         match="SDK cell exceeded its hard timeout",
     ):
         matrix.anyio.run(exchange)
+
+
+def test_cleanup_timeout_starts_after_the_hanging_call_is_observed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class FakeTransport:
+        returncode = 1
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeTransport:
+            events.append("enter")
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            events.append("exit")
+
+        async def send(self, _message: object) -> None:
+            events.append("send")
+
+        async def receive(self) -> None:
+            events.append("receive")
+            raise matrix.StdioTimeout("expected hang")
+
+    runtime = matrix._MatrixRuntime(
+        workdir=tmp_path,
+        import_root=tmp_path,
+        python_environments={},
+        typescript_environments={},
+        typescript_runner=tmp_path / "typescript_client.mts",
+    )
+    request = matrix.Envelope(command_id="cleanup-probe", kind="run", payload={})
+    monkeypatch.setattr(matrix, "StdioTransport", FakeTransport)
+    monkeypatch.setattr(
+        matrix,
+        "_adapter_command",
+        lambda _runner_id, _runtime: (["adapter"], {}),
+    )
+
+    async def await_reached() -> None:
+        events.append("reached")
+
+    async def probe() -> None:
+        await matrix._expect_adapter_timeout(
+            request,
+            "python-v2",
+            runtime,
+            await_reached=await_reached,
+        )
+
+    matrix.anyio.run(probe)
+
+    assert events == ["enter", "send", "reached", "receive", "exit"]
+
+
+def test_cleanup_reach_wait_accepts_a_valid_method_prefix() -> None:
+    expected = ("server/discover", "tools/list", "tools/call")
+    observations = iter((expected[:1], expected))
+
+    async def wait() -> None:
+        await matrix._wait_for_cleanup_hang(
+            lambda: next(observations),
+            expected,
+            runner_id="python-v2",
+        )
+
+    matrix.anyio.run(wait)
+
+
+def test_cleanup_reach_wait_rejects_an_invalid_method_order() -> None:
+    async def wait() -> None:
+        await matrix._wait_for_cleanup_hang(
+            lambda: ("tools/list",),
+            ("server/discover", "tools/list", "tools/call"),
+            runner_id="python-v2",
+        )
+
+    with pytest.raises(matrix.MatrixFailure, match="observed unexpected methods"):
+        matrix.anyio.run(wait)
+
+
+def test_cleanup_reach_wait_has_an_independent_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(matrix, "CLEANUP_REACH_TIMEOUT", 0.01)
+
+    async def wait() -> None:
+        await matrix._wait_for_cleanup_hang(
+            lambda: (),
+            ("server/discover", "tools/list", "tools/call"),
+            runner_id="python-v2",
+        )
+
+    with pytest.raises(matrix.MatrixFailure, match="did not reach the hanging call"):
+        matrix.anyio.run(wait)
+
+
+@pytest.mark.parametrize(
+    ("times_out", "returncode", "message"),
+    (
+        (False, 1, "returned before its hard timeout"),
+        (True, 0, "did not reap its adapter"),
+    ),
+)
+def test_cleanup_probe_rejects_a_response_or_unreaped_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    times_out: bool,
+    returncode: int,
+    message: str,
+) -> None:
+    class FakeTransport:
+        stderr = ""
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.returncode = returncode
+
+        async def __aenter__(self) -> FakeTransport:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, _message: object) -> None:
+            pass
+
+        async def receive(self) -> None:
+            if times_out:
+                raise matrix.StdioTimeout("expected hang")
+
+    runtime = matrix._MatrixRuntime(
+        workdir=tmp_path,
+        import_root=tmp_path,
+        python_environments={},
+        typescript_environments={},
+        typescript_runner=tmp_path / "typescript_client.mts",
+    )
+    request = matrix.Envelope(command_id="cleanup-probe", kind="run", payload={})
+    monkeypatch.setattr(matrix, "StdioTransport", FakeTransport)
+    monkeypatch.setattr(
+        matrix,
+        "_adapter_command",
+        lambda _runner_id, _runtime: (["adapter"], {}),
+    )
+
+    async def probe() -> None:
+        await matrix._expect_adapter_timeout(request, "python-v2", runtime)
+
+    with pytest.raises(matrix.MatrixFailure, match=message):
+        matrix.anyio.run(probe)
+
+
+def test_cleanup_probe_reports_an_unexpected_adapter_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTransport:
+        returncode = 1
+        stderr = "TypeScript SDK cell failed: fetch failed"
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeTransport:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            raise RuntimeError("child pipes could not be closed")
+
+        async def send(self, _message: object) -> None:
+            pass
+
+        async def receive(self) -> dict[str, object]:
+            return {
+                "schema_version": 1,
+                "command_id": "cleanup-probe",
+                "kind": "failure",
+                "payload": {
+                    "error_type": "TypeError",
+                    "message": "fetch failed",
+                    "runner_id": "typescript-v1",
+                },
+            }
+
+    runtime = matrix._MatrixRuntime(
+        workdir=tmp_path,
+        import_root=tmp_path,
+        python_environments={},
+        typescript_environments={},
+        typescript_runner=tmp_path / "typescript_client.mts",
+    )
+    request = matrix.Envelope(
+        command_id="cleanup-probe",
+        kind="run",
+        payload={"transport": "streamable-http"},
+    )
+    monkeypatch.setattr(matrix, "StdioTransport", FakeTransport)
+    monkeypatch.setattr(
+        matrix,
+        "_adapter_command",
+        lambda _runner_id, _runtime: (["adapter"], {}),
+    )
+
+    async def probe() -> None:
+        await matrix._expect_adapter_timeout(request, "typescript-v1", runtime)
+
+    with pytest.raises(matrix.MatrixFailure) as raised:
+        matrix.anyio.run(probe)
+
+    message = str(raised.value)
+    assert "typescript-v1 streamable-http cleanup probe returned" in message
+    assert '"message":"fetch failed"' in message
+    assert "TypeScript SDK cell failed: fetch failed" in message
+    assert "cleanup failed: RuntimeError: child pipes could not be closed" in message
+
+
+def test_cleanup_probe_reports_an_adapter_stream_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTransport:
+        returncode = 7
+        stderr = "adapter process exited unexpectedly"
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeTransport:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, _message: object) -> None:
+            pass
+
+        async def receive(self) -> dict[str, object]:
+            raise StdioError("child stdout closed before a complete message")
+
+    runtime = matrix._MatrixRuntime(
+        workdir=tmp_path,
+        import_root=tmp_path,
+        python_environments={},
+        typescript_environments={},
+        typescript_runner=tmp_path / "typescript_client.mts",
+    )
+    request = matrix.Envelope(
+        command_id="cleanup-probe",
+        kind="run",
+        payload={"transport": "stdio"},
+    )
+    monkeypatch.setattr(matrix, "StdioTransport", FakeTransport)
+    monkeypatch.setattr(
+        matrix,
+        "_adapter_command",
+        lambda _runner_id, _runtime: (["adapter"], {}),
+    )
+
+    async def probe() -> None:
+        await matrix._expect_adapter_timeout(request, "typescript-v1", runtime)
+
+    with pytest.raises(matrix.MatrixFailure) as raised:
+        matrix.anyio.run(probe)
+
+    message = str(raised.value)
+    assert "typescript-v1 stdio cleanup probe adapter stream failed" in message
+    assert "child stdout closed before a complete message" in message
+    assert "adapter returncode: 7" in message
+    assert "adapter process exited unexpectedly" in message
+
+
+def test_cleanup_probe_does_not_treat_a_send_timeout_as_a_hang(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTransport:
+        returncode = 1
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeTransport:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, _message: object) -> None:
+            raise matrix.StdioTimeout("send timed out")
+
+        async def receive(self) -> None:
+            raise AssertionError("receive must not run after a send timeout")
+
+    runtime = matrix._MatrixRuntime(
+        workdir=tmp_path,
+        import_root=tmp_path,
+        python_environments={},
+        typescript_environments={},
+        typescript_runner=tmp_path / "typescript_client.mts",
+    )
+    request = matrix.Envelope(command_id="cleanup-probe", kind="run", payload={})
+    monkeypatch.setattr(matrix, "StdioTransport", FakeTransport)
+    monkeypatch.setattr(
+        matrix,
+        "_adapter_command",
+        lambda _runner_id, _runtime: (["adapter"], {}),
+    )
+
+    async def probe() -> None:
+        await matrix._expect_adapter_timeout(request, "python-v2", runtime)
+
+    with pytest.raises(matrix.StdioTimeout, match="send timed out"):
+        matrix.anyio.run(probe)
+
+
+def test_live_peer_report_retries_a_windows_sharing_violation() -> None:
+    class SharingReport:
+        attempts = 0
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            self.attempts += 1
+            if self.attempts == 1:
+                raise PermissionError("file is being replaced")
+            return '{"methods":["server/discover","tools/list","tools/call"]}'
+
+    report = SharingReport()
+
+    assert matrix._live_report_methods(report) == ()  # type: ignore[arg-type]
+    assert matrix._live_report_methods(report) == (  # type: ignore[arg-type]
+        "server/discover",
+        "tools/list",
+        "tools/call",
+    )
 
 
 def test_structured_sdk_failure_is_a_compatibility_failure() -> None:

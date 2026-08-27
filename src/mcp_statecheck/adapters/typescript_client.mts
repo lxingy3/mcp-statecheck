@@ -1,4 +1,4 @@
-// Isolated TypeScript SDK client runner for the M3 transport matrix.
+// Isolated TypeScript SDK client runner for locked transport matrices.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -10,6 +10,15 @@ const expectedActions = [
   ["initialize", null],
   ["initialized", null],
   ["request", "ping"],
+  ["request", "tools/list"],
+  ["request", "tools/call"],
+  ["close", null],
+];
+const modernActionProfile = "modern-stateless";
+const modernProtocolVersion = "2026-07-28";
+const modernExpectedActions = [
+  ["connect", null],
+  ["discover", null],
   ["request", "tools/list"],
   ["request", "tools/call"],
   ["close", null],
@@ -35,11 +44,16 @@ function parseCommand(line) {
 
   const payload = envelope.payload;
   fail(payload && typeof payload === "object" && !Array.isArray(payload), "payload must be an object");
+  const isModern = payload.action_profile === modernActionProfile;
   fail(
-    Object.keys(payload).sort().join(",") === "actions,runner_id,sdk_version,target,transport",
+    Object.keys(payload).sort().join(",") ===
+      (isModern
+        ? "action_profile,actions,runner_id,sdk_version,target,transport"
+        : "actions,runner_id,sdk_version,target,transport"),
     "adapter payload fields do not match schema v1",
   );
   fail(["typescript-v1", "typescript-v2"].includes(payload.runner_id), "unsupported TypeScript runner");
+  fail(!isModern || payload.runner_id === "typescript-v2", "modern profile requires TypeScript v2");
   fail(typeof payload.sdk_version === "string" && payload.sdk_version, "invalid sdk_version");
   fail(["stdio", "streamable-http"].includes(payload.transport), "unsupported transport");
   if (payload.transport === "stdio") {
@@ -63,7 +77,8 @@ function parseCommand(line) {
       "Streamable HTTP target must be a loopback /mcp URL",
     );
   }
-  fail(Array.isArray(payload.actions) && payload.actions.length === expectedActions.length, "unsupported action count");
+  const selectedActions = isModern ? modernExpectedActions : expectedActions;
+  fail(Array.isArray(payload.actions) && payload.actions.length === selectedActions.length, "unsupported action count");
   payload.actions.forEach((action, index) => {
     fail(action && typeof action === "object" && !Array.isArray(action), "action must be an object");
     fail(Object.keys(action).sort().join(",") === actionFields, "action fields do not match schema v1");
@@ -72,21 +87,37 @@ function parseCommand(line) {
       fail(action[field] === null || typeof action[field] === "string", `invalid action ${field}`);
     }
     fail(
-      action.kind === expectedActions[index][0] && action.method === expectedActions[index][1],
+      action.kind === selectedActions[index][0] && action.method === selectedActions[index][1],
       "unsupported canonical action sequence",
     );
   });
-  fail(
-    payload.actions[1].protocol_version === "2025-11-25" &&
-      Object.keys(payload.actions[1].capabilities).length === 0 &&
-      Object.keys(payload.actions[3].payload).length === 0 &&
-      Object.keys(payload.actions[4].payload).length === 0 &&
-      payload.actions[5].payload?.name === "echo" &&
-      Object.keys(payload.actions[5].payload).sort().join(",") === "arguments,name" &&
-      payload.actions[5].payload?.arguments?.text === "hello" &&
-      Object.keys(payload.actions[5].payload.arguments).join(",") === "text",
-    "unsupported canonical action payload",
-  );
+  if (isModern) {
+    fail(
+      payload.actions.slice(1, 4).every(
+        (action) =>
+          action.protocol_version === modernProtocolVersion &&
+          Object.keys(action.capabilities).length === 0,
+      ) &&
+        Object.keys(payload.actions[2].payload).length === 0 &&
+        payload.actions[3].payload?.name === "echo" &&
+        Object.keys(payload.actions[3].payload).sort().join(",") === "arguments,name" &&
+        payload.actions[3].payload?.arguments?.text === "hello" &&
+        Object.keys(payload.actions[3].payload.arguments).join(",") === "text",
+      "unsupported modern canonical action payload",
+    );
+  } else {
+    fail(
+      payload.actions[1].protocol_version === "2025-11-25" &&
+        Object.keys(payload.actions[1].capabilities).length === 0 &&
+        Object.keys(payload.actions[3].payload).length === 0 &&
+        Object.keys(payload.actions[4].payload).length === 0 &&
+        payload.actions[5].payload?.name === "echo" &&
+        Object.keys(payload.actions[5].payload).sort().join(",") === "arguments,name" &&
+        payload.actions[5].payload?.arguments?.text === "hello" &&
+        Object.keys(payload.actions[5].payload.arguments).join(",") === "text",
+      "unsupported canonical action payload",
+    );
+  }
   return { envelope, payload };
 }
 
@@ -101,6 +132,7 @@ async function readCommand() {
 
 async function main() {
   const { envelope, payload } = await readCommand();
+  const isModern = payload.action_profile === modernActionProfile;
   const environmentRoot = process.env.MCP_STATECHECK_NODE_ENV;
   fail(environmentRoot, "MCP_STATECHECK_NODE_ENV is required");
 
@@ -125,7 +157,9 @@ async function main() {
       ? { capabilities: {} }
       : {
           capabilities: {},
-          versionNegotiation: { mode: "legacy" },
+          versionNegotiation: {
+            mode: isModern ? { pin: modernProtocolVersion } : "legacy",
+          },
         },
   );
   let transport;
@@ -153,38 +187,60 @@ async function main() {
   const events = [];
   try {
     await client.connect(transport);
-    const serverInfo = client.getServerVersion();
-    events.push({
-      kind: "response",
-      method: "initialize",
-      protocol_version: negotiatedProtocolVersion,
-      server_info: { name: serverInfo?.name, version: serverInfo?.version },
-      target_action_id: payload.actions[1].action_id,
-    });
+    let listActionIndex;
+    let callActionIndex;
+    if (isModern) {
+      fail(client.getProtocolEra() === "modern", "client did not enter the modern protocol era");
+      const discovered =
+        payload.transport === "stdio" ? await client.discover() : client.getDiscoverResult();
+      fail(discovered !== undefined, "client did not retain its discovery result");
+      const serverInfo = client.getServerVersion();
+      events.push({
+        kind: "response",
+        method: "server/discover",
+        protocol_version: negotiatedProtocolVersion,
+        server_info: { name: serverInfo?.name, version: serverInfo?.version },
+        supported_protocol_versions: [...discovered.supportedVersions].sort(),
+        target_action_id: payload.actions[1].action_id,
+      });
+      listActionIndex = 2;
+      callActionIndex = 3;
+    } else {
+      const serverInfo = client.getServerVersion();
+      events.push({
+        kind: "response",
+        method: "initialize",
+        protocol_version: negotiatedProtocolVersion,
+        server_info: { name: serverInfo?.name, version: serverInfo?.version },
+        target_action_id: payload.actions[1].action_id,
+      });
 
-    await client.ping();
-    events.push({
-      kind: "response",
-      method: "ping",
-      target_action_id: payload.actions[3].action_id,
-    });
+      await client.ping();
+      events.push({
+        kind: "response",
+        method: "ping",
+        target_action_id: payload.actions[3].action_id,
+      });
+      listActionIndex = 4;
+      callActionIndex = 5;
+    }
 
     const tools = await client.listTools();
     events.push({
       kind: "response",
       method: "tools/list",
-      target_action_id: payload.actions[4].action_id,
+      target_action_id: payload.actions[listActionIndex].action_id,
       tool_names: tools.tools.map((tool) => tool.name).sort(),
     });
 
-    const call = payload.actions[5].payload;
+    const call = payload.actions[callActionIndex].payload;
     fail(call && typeof call === "object" && !Array.isArray(call), "tools/call payload must be an object");
     const result = await client.callTool({ name: call.name, arguments: call.arguments });
     events.push({
       is_error: Boolean(result.isError),
       kind: "response",
       method: "tools/call",
-      target_action_id: payload.actions[5].action_id,
+      target_action_id: payload.actions[callActionIndex].action_id,
       text: result.content
         .filter((content) => content.type === "text")
         .map((content) => content.text)
@@ -192,7 +248,7 @@ async function main() {
     });
   } finally {
     try {
-      if (payload.transport === "streamable-http") await transport.terminateSession();
+      if (payload.transport === "streamable-http" && !isModern) await transport.terminateSession();
     } finally {
       await client.close();
     }

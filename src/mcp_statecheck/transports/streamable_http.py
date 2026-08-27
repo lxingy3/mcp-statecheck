@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import codecs
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
@@ -12,7 +13,11 @@ from typing import Any
 import anyio
 import httpx
 
-from ..model import canonical_json, is_valid_initialize_result
+from ..model import (
+    MODERN_PROTOCOL_VERSIONS,
+    canonical_json,
+    is_valid_initialize_result,
+)
 
 ACCEPT = "application/json, text/event-stream"
 MAX_SSE_RETRY_MS = 2**31 - 1
@@ -278,10 +283,15 @@ class StreamableHTTPTransport:
         method = message.get("method")
         is_initialize = method == "initialize"
         is_request = "method" in message and "id" in message
+        modern_protocol = self._modern_protocol_version(message)
+        is_modern = modern_protocol is not None
         if is_initialize:
             self.session_id = None
             self.protocol_version = None
-        sent_session = None if is_initialize else self.session_id
+        elif is_modern:
+            self.session_id = None
+            self.protocol_version = modern_protocol
+        sent_session = None if is_initialize or is_modern else self.session_id
         response_status: int | None = None
         staged_session: str | None = None
         initialize_succeeded = False
@@ -294,8 +304,16 @@ class StreamableHTTPTransport:
                 requested_protocol_version = params["protocolVersion"]
         messages: list[dict[str, Any]]
         headers = self._request_headers(
-            include_protocol=not is_initialize, include_session=not is_initialize
+            include_protocol=not is_initialize,
+            include_session=not is_initialize and not is_modern,
         )
+        if is_modern:
+            if not isinstance(method, str) or not method:
+                raise HTTPProtocolError("modern HTTP message requires a method")
+            headers["Mcp-Method"] = method
+            name = self._modern_request_name(message)
+            if name is not None:
+                headers["Mcp-Name"] = self._encoded_header_value(name)
         headers["Content-Type"] = "application/json"
         try:
             payload = json.dumps(
@@ -389,6 +407,10 @@ class StreamableHTTPTransport:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Yield messages from one resumable GET SSE connection."""
         self._ensure_open()
+        if self.protocol_version in MODERN_PROTOCOL_VERSIONS:
+            raise HTTPProtocolError(
+                "standalone GET streams are not available in modern MCP"
+            )
         if last_event_id is not None and not isinstance(last_event_id, str):
             raise TypeError("last_event_id must be a string or null")
         sent_session = self.session_id
@@ -634,6 +656,8 @@ class StreamableHTTPTransport:
     ) -> httpx.Headers:
         headers = self._headers.copy()
         for reserved in (
+            "Mcp-Method",
+            "Mcp-Name",
             "MCP-Session-Id",
             "MCP-Protocol-Version",
             "Last-Event-ID",
@@ -645,6 +669,50 @@ class StreamableHTTPTransport:
         if include_protocol and self.protocol_version is not None:
             headers["MCP-Protocol-Version"] = self.protocol_version
         return headers
+
+    @staticmethod
+    def _modern_protocol_version(message: Mapping[str, Any]) -> str | None:
+        params = message.get("params")
+        meta = params.get("_meta") if isinstance(params, Mapping) else None
+        version = (
+            meta.get("io.modelcontextprotocol/protocolVersion")
+            if isinstance(meta, Mapping)
+            else None
+        )
+        return version if version in MODERN_PROTOCOL_VERSIONS else None
+
+    @staticmethod
+    def _modern_request_name(message: Mapping[str, Any]) -> str | None:
+        if message.get("method") not in {
+            "prompts/get",
+            "resources/read",
+            "tools/call",
+        }:
+            return None
+        params = message.get("params")
+        if not isinstance(params, Mapping):
+            raise HTTPProtocolError("named modern request requires object params")
+        field = "uri" if message.get("method") == "resources/read" else "name"
+        value = params.get(field)
+        if not isinstance(value, str) or not value:
+            raise HTTPProtocolError(f"modern request requires a non-empty {field}")
+        return value
+
+    @staticmethod
+    def _encoded_header_value(value: str) -> str:
+        sentinel = value.startswith("=?base64?") and value.endswith("?=")
+        plain = (
+            not sentinel
+            and value == value.strip(" \t")
+            and all(
+                character == "\t" or 0x20 <= ord(character) <= 0x7E
+                for character in value
+            )
+        )
+        if plain:
+            return value
+        encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+        return f"=?base64?{encoded}?="
 
     @staticmethod
     def _with_utf8_header(

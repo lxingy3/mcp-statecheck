@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from . import __version__
 from .model import (
+    MODERN_PROTOCOL_VERSIONS,
     Action,
     ActionKind,
     JsonValue,
@@ -120,6 +121,7 @@ async def execute_http(
     action_ids: set[str] = set()
     supported = {
         ActionKind.CONNECT,
+        ActionKind.DISCOVER,
         ActionKind.INITIALIZE,
         ActionKind.INITIALIZED,
         ActionKind.REQUEST,
@@ -170,6 +172,7 @@ async def execute_http(
                     )
                 continue
             if action.kind in (
+                ActionKind.DISCOVER,
                 ActionKind.INITIALIZE,
                 ActionKind.INITIALIZED,
                 ActionKind.REQUEST,
@@ -186,7 +189,11 @@ async def execute_http(
                 except HTTPTimeout as exc:
                     events.append(_http_timeout_event(action, "POST", exc.status_code))
                     break
-                if action.kind in (ActionKind.INITIALIZE, ActionKind.REQUEST):
+                if action.kind in (
+                    ActionKind.DISCOVER,
+                    ActionKind.INITIALIZE,
+                    ActionKind.REQUEST,
+                ):
                     pending = {_id_key(action.mcp_request_id): [action.action_id]}
                     normalized = []
                     for inbound in messages:
@@ -297,6 +304,13 @@ def _wire_message(action: Action) -> dict[str, JsonValue]:
             "method": "initialize",
             "params": params,
         }
+    if action.kind is ActionKind.DISCOVER:
+        return {
+            "id": canonical_json(action.mcp_request_id),
+            "jsonrpc": "2.0",
+            "method": "server/discover",
+            "params": _modern_params(action),
+        }
     if action.kind is ActionKind.REQUEST:
         if not action.method:
             raise ExecutionProtocolError("request requires a method")
@@ -305,7 +319,9 @@ def _wire_message(action: Action) -> dict[str, JsonValue]:
             "jsonrpc": "2.0",
             "method": action.method,
         }
-        if action.payload is not None:
+        if action.protocol_version in MODERN_PROTOCOL_VERSIONS:
+            message["params"] = _modern_params(action)
+        elif action.payload is not None:
             message["params"] = canonical_json(action.payload)
         return message
     if action.kind is ActionKind.INITIALIZED:
@@ -320,6 +336,44 @@ def _wire_message(action: Action) -> dict[str, JsonValue]:
             "params": {"requestId": canonical_json(action.mcp_request_id)},
         }
     raise ExecutionProtocolError(f"unsupported action kind: {action.kind.value}")
+
+
+def _modern_request_meta(action: Action) -> dict[str, JsonValue]:
+    if action.protocol_version not in MODERN_PROTOCOL_VERSIONS:
+        raise ExecutionProtocolError(
+            "modern request requires a supported modern protocol version"
+        )
+    return {
+        "io.modelcontextprotocol/clientCapabilities": canonical_json(
+            action.capabilities or {}
+        ),
+        "io.modelcontextprotocol/clientInfo": {
+            "name": "mcp-statecheck",
+            "version": __version__,
+        },
+        "io.modelcontextprotocol/protocolVersion": action.protocol_version,
+    }
+
+
+def _modern_params(action: Action) -> dict[str, JsonValue]:
+    payload = canonical_json({} if action.payload is None else action.payload)
+    if not isinstance(payload, dict):
+        raise ExecutionProtocolError("modern request payload must be an object or null")
+    raw_meta = payload.pop("_meta", None)
+    if raw_meta is None:
+        metadata: dict[str, JsonValue] = {}
+    elif isinstance(raw_meta, dict):
+        metadata = raw_meta
+    else:
+        raise ExecutionProtocolError("modern request _meta must be an object or null")
+    required = _modern_request_meta(action)
+    if any(
+        key in metadata and metadata[key] != value for key, value in required.items()
+    ):
+        raise ExecutionProtocolError(
+            "modern request metadata conflicts with the canonical action"
+        )
+    return {**payload, "_meta": {**metadata, **required}}
 
 
 def _normalize_inbound(

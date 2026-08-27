@@ -12,6 +12,7 @@ type JsonValue = (
     None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 )
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-11-25")
+MODERN_PROTOCOL_VERSIONS = ("2026-07-28",)
 
 
 def _validate_json_string(value: str, where: str) -> str:
@@ -74,6 +75,7 @@ class ActionKind(StrEnum):
     RECONNECT = "reconnect"
     INITIALIZE = "initialize"
     INITIALIZED = "initialized"
+    DISCOVER = "discover"
     REQUEST = "request"
     NOTIFICATION = "notification"
     RESPONSE = "response"
@@ -340,6 +342,15 @@ def reduce(state: ModelState, action: Action) -> ModelState:
             negotiated_protocol_version=None,
             server_capabilities=None,
         )
+    if action.kind is ActionKind.DISCOVER:
+        state = _append_request(state, action, method="server/discover")
+        return replace(
+            state,
+            requested_protocol_version=action.protocol_version,
+            client_capabilities=action.capabilities,
+            negotiated_protocol_version=None,
+            server_capabilities=None,
+        )
     if action.kind is ActionKind.INITIALIZED:
         return replace(state, phase=LifecyclePhase.INITIALIZED)
     if action.kind is ActionKind.REQUEST:
@@ -401,7 +412,7 @@ def _apply_response(state: ModelState, action: Action) -> ModelState:
     requests = list(state.requests)
     requests[index] = updated
     changes: dict[str, object] = {"requests": tuple(requests)}
-    if request.method == "initialize":
+    if request.method in {"initialize", "server/discover"}:
         if action.protocol_version is not None:
             changes["negotiated_protocol_version"] = action.protocol_version
         if action.capabilities is not None:

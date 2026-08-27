@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import AsyncIterator
@@ -364,6 +365,144 @@ def test_http_reconnect_sends_unicode_event_id_over_a_real_socket() -> None:
     assert observed[0] is None
     assert observed[1] is not None
     assert observed[1].encode("latin-1") == "cursor-é".encode()
+
+
+def test_modern_http_rejects_standalone_get_before_network() -> None:
+    observed: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request.method)
+        return httpx.Response(500)
+
+    async def scenario() -> None:
+        transport = StreamableHTTPTransport(
+            "https://example.test/mcp",
+            protocol_version="2026-07-28",
+            transport=httpx.MockTransport(handler),
+        )
+        with pytest.raises(
+            HTTPProtocolError,
+            match="standalone GET streams are not available",
+        ):
+            await transport.resume()
+        await transport.close()
+
+    run(scenario)
+    assert observed == []
+
+
+def test_modern_http_routes_named_requests_and_strips_stale_headers() -> None:
+    observed: list[tuple[str | None, str | None, str | None]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        message = json.loads(request.content)
+        observed.append(
+            (
+                message.get("method"),
+                request.headers.get("Mcp-Method"),
+                request.headers.get("Mcp-Name"),
+            )
+        )
+        assert "MCP-Session-Id" not in request.headers
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"jsonrpc": "2.0", "id": message["id"], "result": {}},
+        )
+
+    def request(request_id: int, method: str, **params: object) -> dict[str, object]:
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": {
+                **params,
+                "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"},
+            },
+        }
+
+    async def scenario() -> None:
+        transport = StreamableHTTPTransport(
+            "https://example.test/mcp",
+            headers={
+                "Mcp-Method": "stale-method",
+                "Mcp-Name": "stale-name",
+                "MCP-Session-Id": "stale-session",
+            },
+            transport=httpx.MockTransport(handler),
+        )
+        await transport.send(request(1, "tools/list"))
+        await transport.send(request(2, "prompts/get", name="review"))
+        await transport.send(request(3, "resources/read", uri="resource://guide"))
+        await transport.close()
+
+    run(scenario)
+    assert observed == [
+        ("tools/list", "tools/list", None),
+        ("prompts/get", "prompts/get", "review"),
+        ("resources/read", "resources/read", "resource://guide"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("method", "params", "field"),
+    (
+        ("prompts/get", {}, "name"),
+        ("prompts/get", {"name": 1}, "name"),
+        ("resources/read", {}, "uri"),
+        ("resources/read", {"uri": None}, "uri"),
+    ),
+)
+def test_modern_http_rejects_invalid_named_requests_before_network(
+    method: str,
+    params: dict[str, object],
+    field: str,
+) -> None:
+    observed: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request.method)
+        return httpx.Response(500)
+
+    async def scenario() -> None:
+        transport = StreamableHTTPTransport(
+            "https://example.test/mcp",
+            transport=httpx.MockTransport(handler),
+        )
+        with pytest.raises(
+            HTTPProtocolError,
+            match=f"requires a non-empty {field}",
+        ):
+            await transport.send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": method,
+                    "params": {
+                        **params,
+                        "_meta": {
+                            "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+                        },
+                    },
+                }
+            )
+        await transport.close()
+
+    run(scenario)
+    assert observed == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        ("echo", "echo"),
+        ("Hello, 世界", "=?base64?SGVsbG8sIOS4lueVjA==?="),
+        (" padded ", "=?base64?IHBhZGRlZCA=?="),
+        ("=?base64?literal?=", "=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?="),
+    ),
+)
+def test_modern_http_header_value_encoding(value: str, expected: str) -> None:
+    assert StreamableHTTPTransport._encoded_header_value(value) == expected
 
 
 @pytest.mark.parametrize(

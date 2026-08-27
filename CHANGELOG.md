@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added a separate MCP `2026-07-28` stateless matrix with pinned Python
+  `mcp 2.1.1` and TypeScript `@modelcontextprotocol/client 2.0.0` clients over
+  stdio and Streamable HTTP.
+- Added discovery, namespaced per-request metadata, HTTP routing-header and
+  session-free transport checks, four parent-owned hard-timeout cleanup probes
+  with adapter diagnostics, and three-run deterministic acceptance for the
+  modern profile.
 - Added a locked external MCP server canary with ten byte-identical stdio runs,
   direct process cleanup evidence, isolated runtime state, and Ubuntu/Windows
   CI coverage.

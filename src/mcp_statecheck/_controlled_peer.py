@@ -29,7 +29,10 @@ def _initialize_result(protocol_version: str) -> dict[str, Any]:
 
 
 INITIALIZE_RESULT = _initialize_result("2025-11-25")
-SDK_MODES = {"sdk-hang", "sdk-smoke"}
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
+MODERN_SDK_MODES = {"sdk-modern-hang", "sdk-modern-smoke"}
+SDK_MODES = {"sdk-hang", "sdk-smoke", *MODERN_SDK_MODES}
 OBSERVED_STDIO_MODES = SDK_MODES | {
     "initialize-error",
     "initialize-invalid-result",
@@ -38,6 +41,35 @@ OBSERVED_STDIO_MODES = SDK_MODES | {
 
 def _result(request_id: object, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def _modern_result(
+    request_id: object,
+    result: dict[str, Any],
+    *,
+    cacheable: bool = False,
+) -> dict[str, Any]:
+    common: dict[str, Any] = {
+        "_meta": {SERVER_INFO_META_KEY: {"name": "controlled-peer", "version": "0.1"}},
+        "resultType": "complete",
+    }
+    if cacheable:
+        common.update({"cacheScope": "private", "ttlMs": 0})
+    return _result(request_id, {**result, **common})
+
+
+def _modern_meta_valid(message: dict[str, Any]) -> bool:
+    params = message.get("params")
+    meta = params.get("_meta") if isinstance(params, dict) else None
+    return (
+        isinstance(meta, dict)
+        and meta.get("io.modelcontextprotocol/protocolVersion")
+        == MODERN_PROTOCOL_VERSION
+        and isinstance(meta.get("io.modelcontextprotocol/clientCapabilities"), dict)
+        and isinstance(meta.get("io.modelcontextprotocol/clientInfo"), dict)
+        and isinstance(meta["io.modelcontextprotocol/clientInfo"].get("name"), str)
+        and isinstance(meta["io.modelcontextprotocol/clientInfo"].get("version"), str)
+    )
 
 
 @dataclass
@@ -57,6 +89,8 @@ class PeerState:
     post_accepts: list[str | None] = field(default_factory=list)
     post_session_ids: list[str | None] = field(default_factory=list)
     post_protocol_versions: list[str | None] = field(default_factory=list)
+    post_method_headers: list[str | None] = field(default_factory=list)
+    post_name_headers: list[str | None] = field(default_factory=list)
     post_authorizations: list[str | None] = field(default_factory=list)
     pending_initialize: dict[str, Any] | None = None
     duplicate_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -65,6 +99,7 @@ class PeerState:
     server_ping_responses: list[dict[str, Any]] = field(default_factory=list)
     stdio_methods: list[str | None] = field(default_factory=list)
     initialize_protocol_versions: list[str | None] = field(default_factory=list)
+    request_meta_valid: list[bool] = field(default_factory=list)
 
     def handle_stdio(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         method = message.get("method")
@@ -78,6 +113,20 @@ class PeerState:
             return []
         if self.mode in OBSERVED_STDIO_MODES:
             self.stdio_methods.append(method)
+        if self.mode in MODERN_SDK_MODES and method is not None:
+            self.request_meta_valid.append(_modern_meta_valid(message))
+
+        if method == "server/discover" and self.mode in MODERN_SDK_MODES:
+            return [
+                _modern_result(
+                    request_id,
+                    {
+                        "capabilities": {"tools": {}},
+                        "supportedVersions": [MODERN_PROTOCOL_VERSION],
+                    },
+                    cacheable=True,
+                )
+            ]
 
         if method == "initialize":
             if self.mode in OBSERVED_STDIO_MODES:
@@ -128,7 +177,15 @@ class PeerState:
                 if self.mode in SDK_MODES
                 else []
             )
-            response = _result(request_id, {"tools": tools})
+            response = (
+                _modern_result(
+                    request_id,
+                    {"tools": tools},
+                    cacheable=True,
+                )
+                if self.mode in MODERN_SDK_MODES
+                else _result(request_id, {"tools": tools})
+            )
             if self.mode == "unknown-response-id":
                 return [_result(999, {}), response]
             if self.mode == "invalid-json-rpc-error":
@@ -155,15 +212,20 @@ class PeerState:
                         "error": {"code": -32602, "message": "invalid echo arguments"},
                     }
                 ]
-            if self.mode == "sdk-hang":
+            if self.mode in {"sdk-hang", "sdk-modern-hang"}:
                 return []
+            result = {
+                "content": [{"type": "text", "text": text}],
+                "isError": False,
+            }
             return [
-                _result(
-                    request_id,
-                    {
-                        "content": [{"type": "text", "text": text}],
-                        "isError": False,
-                    },
+                (
+                    _modern_result(request_id, result)
+                    if self.mode in MODERN_SDK_MODES
+                    else _result(
+                        request_id,
+                        result,
+                    )
                 )
             ]
 
@@ -293,6 +355,7 @@ def _write_stdio_report(
         "initialize_protocol_versions": state.initialize_protocol_versions,
         "methods": state.stdio_methods,
         "negotiated_protocol_version": protocol_version,
+        "request_meta_valid": state.request_meta_valid,
     }
     if state.mode == "server-ping-before-response":
         payload["server_ping_responses"] = len(state.server_ping_responses)
@@ -334,13 +397,15 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
         self,
         mode: str,
         protocol_version: str = "2025-11-25",
+        *,
+        _hang_release: threading.Event | None = None,
     ) -> None:
         self.state = PeerState(
             mode,
             negotiated_protocol_version=protocol_version,
         )
         state = self.state
-        hang_release = threading.Event()
+        hang_release = threading.Event() if _hang_release is None else _hang_release
         self._hang_release = hang_release
 
         class Handler(BaseHTTPRequestHandler):
@@ -380,6 +445,8 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                 state.post_protocol_versions.append(
                     self.headers.get("MCP-Protocol-Version")
                 )
+                state.post_method_headers.append(self.headers.get("Mcp-Method"))
+                state.post_name_headers.append(self.headers.get("Mcp-Name"))
                 state.post_authorizations.append(self.headers.get("Authorization"))
                 if state.mode in SDK_MODES:
                     replies = state.handle_stdio(message)
@@ -387,7 +454,9 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                         self._send(202)
                         return
                     if not replies:
-                        hang_release.wait(timeout=30)
+                        # The matrix owns the deadline. A second wall-clock timeout
+                        # can win this race if a CI runner is suspended.
+                        hang_release.wait()
                         return
                     if len(replies) != 1:
                         raise RuntimeError("SDK HTTP mode returned multiple replies")
@@ -660,7 +729,7 @@ def main() -> int:
     parser.add_argument("--mode", required=True)
     parser.add_argument(
         "--protocol-version",
-        choices=("2025-06-18", "2025-11-25"),
+        choices=("2025-06-18", "2025-11-25", MODERN_PROTOCOL_VERSION),
         default="2025-11-25",
     )
     parser.add_argument("--report", type=Path)

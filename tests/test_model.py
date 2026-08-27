@@ -57,6 +57,40 @@ def test_lifecycle_and_negotiation_are_explicit() -> None:
     assert state.phase is LifecyclePhase.CLOSED
 
 
+def test_modern_discovery_does_not_create_a_legacy_session() -> None:
+    state = reduce(ModelState(), Action("connect", ActionKind.CONNECT))
+    state = reduce(
+        state,
+        Action(
+            "discover",
+            ActionKind.DISCOVER,
+            mcp_request_id=1,
+            protocol_version="2026-07-28",
+            capabilities={},
+        ),
+    )
+
+    assert state.phase is LifecyclePhase.CONNECTED
+    assert state.request("discover").method == "server/discover"  # type: ignore[union-attr]
+    assert state.requested_protocol_version == "2026-07-28"
+    assert state.client_capabilities == {}
+
+    state = reduce(
+        state,
+        Action(
+            "discover-response",
+            ActionKind.RESPONSE,
+            target_action_id="discover",
+            protocol_version="2026-07-28",
+            capabilities={"tools": {}},
+        ),
+    )
+
+    assert state.phase is LifecyclePhase.CONNECTED
+    assert state.negotiated_protocol_version == "2026-07-28"
+    assert state.server_capabilities == {"tools": {}}
+
+
 def test_duplicate_mcp_ids_are_preserved_and_never_guessed() -> None:
     state = ModelState(phase=LifecyclePhase.INITIALIZED)
     state = reduce(

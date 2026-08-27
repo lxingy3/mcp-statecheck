@@ -49,6 +49,8 @@ MATRIX_PACKAGE_ASSETS = {
     "adapters/python/v1/uv.lock",
     "adapters/python/v2/pyproject.toml",
     "adapters/python/v2/uv.lock",
+    "adapters/python/modern/pyproject.toml",
+    "adapters/python/modern/uv.lock",
     "adapters/python_client.py",
     "adapters/typescript/v1/package-lock.json",
     "adapters/typescript/v1/package.json",
@@ -56,6 +58,7 @@ MATRIX_PACKAGE_ASSETS = {
     "adapters/typescript/v2/package.json",
     "adapters/typescript_client.mts",
     "benchmarks/mcp-v2.toml",
+    "benchmarks/mcp-modern.toml",
     "matrix.py",
     "model.py",
 }
@@ -189,13 +192,17 @@ def _validate_wheel_assets(wheel: Path) -> None:
 
 
 def _validate_sdist_assets(sdist: Path) -> None:
+    benchmark_assets = {
+        "benchmarks/mcp-v2.toml",
+        "benchmarks/mcp-modern.toml",
+    }
     required_suffixes = {
         *{
             f"/src/mcp_statecheck/{path}"
             for path in MATRIX_PACKAGE_ASSETS
-            if path != "benchmarks/mcp-v2.toml"
+            if path not in benchmark_assets
         },
-        "/benchmarks/mcp-v2.toml",
+        *{f"/{path}" for path in benchmark_assets},
     }
     try:
         with tarfile.open(sdist, "r:gz") as archive:
@@ -243,12 +250,17 @@ def _probe_installed_matrix_assets(
         "from pathlib import Path;"
         "from tempfile import TemporaryDirectory;"
         "from mcp_statecheck.matrix import "
-        "_default_config,_load_runners,_materialize_runtime;"
+        "_default_config,_load_runners,_materialize_runtime,"
+        "_load_modern_runners,_materialize_modern_runtime,_modern_config;"
         "temporary=TemporaryDirectory(prefix='mcp-statecheck-sdist-probe-');"
         "runtime=_materialize_runtime(Path(temporary.name));"
+        "modern=_materialize_modern_runtime(Path(temporary.name)/'modern');"
         "assert len(_load_runners(_default_config()))==4;"
+        "assert len(_load_modern_runners(_modern_config()))==2;"
         "assert runtime.import_root.is_dir();"
         "assert runtime.typescript_runner.is_file();"
+        "assert modern.import_root.is_dir();"
+        "assert modern.typescript_runner.is_file();"
         "temporary.cleanup();"
         "print('sdist matrix assets passed')"
     )
@@ -559,18 +571,27 @@ def _assert_secret_absent(
         raise AcceptanceError("HTTP secret leaked into process output")
 
 
-def _validate_matrix_outputs(actual: Path, expected: Path) -> int:
+def _validate_matrix_outputs(
+    actual: Path,
+    expected: Path,
+    *,
+    cells: int = 16,
+    label: str = "legacy",
+) -> int:
     actual_paths = tuple(sorted(actual.rglob("*.json")))
     expected_paths = tuple(sorted(expected.rglob("*.json")))
     actual_names = {path.relative_to(actual) for path in actual_paths}
     expected_names = {path.relative_to(expected) for path in expected_paths}
-    if len(actual_paths) != 16 or actual_names != expected_names:
-        raise AcceptanceError("installed matrix did not write the exact 16-cell set")
+    if len(actual_paths) != cells or actual_names != expected_names:
+        raise AcceptanceError(
+            f"installed {label} matrix did not write the exact {cells}-cell set"
+        )
     for path in actual_paths:
         golden = expected / path.relative_to(actual)
         if path.read_bytes() != golden.read_bytes():
             raise AcceptanceError(
-                f"installed matrix trace differs from golden: {path.relative_to(actual)}"
+                f"installed {label} matrix trace differs from golden: "
+                f"{path.relative_to(actual)}"
             )
     return len(actual_paths)
 
@@ -952,6 +973,29 @@ def _accept(
         matrix_cells = _validate_matrix_outputs(
             matrix_output,
             ROOT / "artifacts" / "m3",
+            cells=16,
+            label="legacy",
+        )
+        modern_matrix_output = work / "modern-matrix-output"
+        modern_matrix_run = _run(
+            [
+                wheel_console,
+                "matrix",
+                "--profile",
+                "modern",
+                "--output",
+                modern_matrix_output,
+            ],
+            cwd=consumer,
+            environment=environment,
+            timeout=TIMEOUTS["matrix"],
+            label="clean wheel modern SDK transport matrix",
+        )
+        modern_matrix_cells = _validate_matrix_outputs(
+            modern_matrix_output,
+            ROOT / "artifacts" / "m6" / "matrix",
+            cells=4,
+            label="modern",
         )
         if tuple(consumer.iterdir()):
             raise AcceptanceError(
@@ -961,6 +1005,12 @@ def _accept(
             "Matrix passed: wrote 16 locked SDK transport traces"
         ):
             raise AcceptanceError("installed matrix printed an unexpected result")
+        if modern_matrix_run.stdout.strip() != (
+            "Matrix passed: wrote 4 locked SDK transport traces"
+        ):
+            raise AcceptanceError(
+                "installed modern matrix printed an unexpected result"
+            )
         for kind, package_root in package_roots.items():
             if _package_asset_hashes(package_root) != initial_asset_hashes[kind]:
                 raise AcceptanceError(
@@ -994,6 +1044,17 @@ def _accept(
                 "resources_unchanged": True,
                 "sdist_assets": "probed",
                 "status": "passed",
+            },
+            "modern_matrix": {
+                "action_profile": "modern-stateless",
+                "cells": modern_matrix_cells,
+                "config": "bundled",
+                "golden_match": True,
+                "package_owned": True,
+                "resources_unchanged": True,
+                "sdist_assets": "probed",
+                "status": "passed",
+                "wheel_executed": True,
             },
             "pythonpath_cleared": True,
             "replay": {
@@ -1055,7 +1116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             "M4 acceptance passed: clean wheel and sdist installs, real stdio "
             "and Streamable HTTP checks, five installed replays, 16 installed "
-            "matrix cells, and four report formats per transport; "
+            "legacy matrix cells, four installed modern matrix cells, and four "
+            "report formats per transport; "
             f"wrote {args.output}"
         )
     return returncode

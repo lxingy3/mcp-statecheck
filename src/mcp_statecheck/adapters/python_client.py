@@ -23,6 +23,15 @@ EXPECTED_ACTIONS = (
     (ActionKind.REQUEST, "tools/call"),
     (ActionKind.CLOSE, None),
 )
+MODERN_ACTION_PROFILE = "modern-stateless"
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+MODERN_EXPECTED_ACTIONS = (
+    (ActionKind.CONNECT, None),
+    (ActionKind.DISCOVER, None),
+    (ActionKind.REQUEST, "tools/list"),
+    (ActionKind.REQUEST, "tools/call"),
+    (ActionKind.CLOSE, None),
+)
 
 
 def _attribute(value: object, *names: str) -> object:
@@ -34,18 +43,29 @@ def _attribute(value: object, *names: str) -> object:
 
 def _command(
     envelope: Envelope,
-) -> tuple[str, str, str, tuple[str, ...] | str, tuple[Action, ...]]:
+) -> tuple[
+    str,
+    str,
+    str,
+    str,
+    tuple[str, ...] | str,
+    tuple[Action, ...],
+]:
     if envelope.kind != "run":
         raise ValueError("adapter envelope kind must be 'run'")
-    if set(envelope.payload) != {
+    legacy_fields = {
         "actions",
         "runner_id",
         "sdk_version",
         "target",
         "transport",
-    }:
+    }
+    modern_fields = {*legacy_fields, "action_profile"}
+    payload_fields = frozenset(envelope.payload)
+    if payload_fields not in {frozenset(legacy_fields), frozenset(modern_fields)}:
         raise ValueError("adapter payload fields do not match schema v1")
 
+    profile = envelope.payload.get("action_profile", "legacy-session")
     runner_id = envelope.payload["runner_id"]
     sdk_version = envelope.payload["sdk_version"]
     transport = envelope.payload["transport"]
@@ -87,9 +107,25 @@ def _command(
 
     actions = tuple(Action.from_dict(action) for action in raw_actions)
     observed = tuple((action.kind, action.method) for action in actions)
-    if observed != EXPECTED_ACTIONS:
+    expected = (
+        MODERN_EXPECTED_ACTIONS
+        if profile == MODERN_ACTION_PROFILE
+        else EXPECTED_ACTIONS
+    )
+    if observed != expected:
         raise ValueError("unsupported canonical action sequence")
-    if (
+    if profile == MODERN_ACTION_PROFILE:
+        if runner_id != "python-v2" or (
+            any(
+                action.protocol_version != MODERN_PROTOCOL_VERSION
+                or action.capabilities != {}
+                for action in actions[1:4]
+            )
+            or actions[2].payload != {}
+            or actions[3].payload != {"name": "echo", "arguments": {"text": "hello"}}
+        ):
+            raise ValueError("unsupported modern canonical action payload")
+    elif profile != "legacy-session" or (
         actions[1].protocol_version != "2025-11-25"
         or actions[1].capabilities != {}
         or actions[3].payload != {}
@@ -97,7 +133,7 @@ def _command(
         or actions[5].payload != {"name": "echo", "arguments": {"text": "hello"}}
     ):
         raise ValueError("unsupported canonical action payload")
-    return runner_id, sdk_version, transport, parsed_target, actions
+    return profile, runner_id, sdk_version, transport, parsed_target, actions
 
 
 async def _exercise_session(
@@ -175,11 +211,94 @@ async def _exercise_session(
     return events
 
 
-async def _run(
+async def _exercise_modern(
     transport: str,
     target: tuple[str, ...] | str,
     actions: tuple[Action, ...],
 ) -> list[dict[str, object]]:
+    from mcp import Client, StdioServerParameters
+    from mcp.types import DiscoverResult, Implementation
+
+    server: object
+    if transport == "stdio":
+        if not isinstance(target, tuple):
+            raise TypeError("stdio target must be an argv tuple")
+        server = StdioServerParameters(command=target[0], args=list(target[1:]))
+    else:
+        if not isinstance(target, str):
+            raise TypeError("Streamable HTTP target must be a URL")
+        server = target
+
+    client = Client(
+        server,  # type: ignore[arg-type]
+        client_info=Implementation(name="mcp-statecheck", version="0.1.0"),
+        mode=MODERN_PROTOCOL_VERSION,
+    )
+    events: list[dict[str, object]] = []
+    async with client:
+        discovered = DiscoverResult.model_validate(
+            await client.session.send_discover(MODERN_PROTOCOL_VERSION)
+        )
+        client.session.adopt(discovered)
+        meta = discovered.meta or {}
+        server_info = meta.get("io.modelcontextprotocol/serverInfo")
+        if not isinstance(server_info, Mapping):
+            server_info = {}
+        events.append(
+            {
+                "kind": "response",
+                "method": "server/discover",
+                "protocol_version": client.protocol_version,
+                "server_info": {
+                    "name": server_info.get("name"),
+                    "version": server_info.get("version"),
+                },
+                "supported_protocol_versions": sorted(discovered.supported_versions),
+                "target_action_id": actions[1].action_id,
+            }
+        )
+
+        tools = await client.list_tools()
+        events.append(
+            {
+                "kind": "response",
+                "method": "tools/list",
+                "target_action_id": actions[2].action_id,
+                "tool_names": sorted(tool.name for tool in tools.tools),
+            }
+        )
+
+        call = actions[3].payload
+        if not isinstance(call, dict):
+            raise TypeError("tools/call payload must be an object")
+        arguments = call.get("arguments")
+        if not isinstance(arguments, dict):
+            raise TypeError("tools/call arguments must be an object")
+        result = await client.call_tool(str(call.get("name")), arguments)
+        events.append(
+            {
+                "is_error": bool(result.is_error),
+                "kind": "response",
+                "method": "tools/call",
+                "target_action_id": actions[3].action_id,
+                "text": "\n".join(
+                    content.text
+                    for content in result.content
+                    if getattr(content, "type", None) == "text"
+                ),
+            }
+        )
+    return events
+
+
+async def _run(
+    profile: str,
+    transport: str,
+    target: tuple[str, ...] | str,
+    actions: tuple[Action, ...],
+) -> list[dict[str, object]]:
+    if profile == MODERN_ACTION_PROFILE:
+        return await _exercise_modern(transport, target, actions)
     if transport == "stdio":
         from mcp import StdioServerParameters
         from mcp.client.stdio import stdio_client
@@ -205,7 +324,14 @@ def main() -> int:
     try:
         line = sys.stdin.buffer.readline()
         envelope = loads_line(line, line_number=1)
-        runner_id, expected_sdk_version, transport, target, actions = _command(envelope)
+        (
+            profile,
+            runner_id,
+            expected_sdk_version,
+            transport,
+            target,
+            actions,
+        ) = _command(envelope)
         actual_sdk_version = version("mcp")
         if actual_sdk_version != expected_sdk_version:
             raise RuntimeError(
@@ -217,7 +343,7 @@ def main() -> int:
         return 2
 
     try:
-        events = anyio.run(_run, transport, target, actions)
+        events = anyio.run(_run, profile, transport, target, actions)
     except Exception as exc:
         message = str(exc) or type(exc).__name__
         response = Envelope(

@@ -92,6 +92,29 @@ def test_installed_matrix_must_match_the_exact_16_golden_files(
         run_m4_acceptance._validate_matrix_outputs(actual, expected)
 
 
+def test_installed_modern_matrix_must_match_the_exact_four_golden_files(
+    tmp_path: Path,
+) -> None:
+    actual = tmp_path / "actual"
+    expected = tmp_path / "expected"
+    for index in range(4):
+        relative = Path("transport") / f"{index}.json"
+        for root in (actual, expected):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"{index}\n", encoding="utf-8")
+
+    assert (
+        run_m4_acceptance._validate_matrix_outputs(
+            actual,
+            expected,
+            cells=4,
+            label="modern",
+        )
+        == 4
+    )
+
+
 def test_windows_tree_cleanup_falls_back_for_launcher_and_peer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

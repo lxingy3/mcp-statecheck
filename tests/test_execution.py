@@ -19,7 +19,10 @@ from mcp_statecheck.execution import (
     execute_stdio,
 )
 from mcp_statecheck.model import Action, ActionKind
-from mcp_statecheck.transports.streamable_http import StreamableHTTPTransport
+from mcp_statecheck.transports.streamable_http import (
+    HTTPProtocolError,
+    StreamableHTTPTransport,
+)
 
 PEER = Path(__file__).parent / "fixtures" / "peer.py"
 
@@ -66,6 +69,236 @@ def test_canonical_actions_execute_over_real_stdio_with_explicit_targets() -> No
         assert result.events[1]["outcome"] == "success"
 
     anyio.run(scenario)
+
+
+def test_modern_stdio_requests_are_self_describing(tmp_path: Path) -> None:
+    report = tmp_path / "modern-peer.json"
+
+    async def scenario() -> None:
+        result = await execute_stdio(
+            (
+                Action(
+                    "discover",
+                    ActionKind.DISCOVER,
+                    mcp_request_id=1,
+                    protocol_version="2026-07-28",
+                    capabilities={},
+                ),
+                Action(
+                    "tools-list",
+                    ActionKind.REQUEST,
+                    mcp_request_id=2,
+                    method="tools/list",
+                    protocol_version="2026-07-28",
+                    capabilities={},
+                    payload={},
+                ),
+            ),
+            (
+                sys.executable,
+                "-m",
+                "mcp_statecheck._controlled_peer",
+                "--stdio",
+                "--mode",
+                "sdk-modern-smoke",
+                "--protocol-version",
+                "2026-07-28",
+                "--report",
+                str(report),
+            ),
+            timeout=5,
+        )
+
+        assert result.returncode == 0
+        assert [event["target_action_id"] for event in result.events] == [
+            "discover",
+            "tools-list",
+        ]
+        observation = json.loads(report.read_text(encoding="utf-8"))
+        assert observation["methods"] == ["server/discover", "tools/list"]
+        assert observation["request_meta_valid"] == [True, True]
+
+    anyio.run(scenario)
+
+
+def test_modern_http_requests_have_routable_headers_and_no_session() -> None:
+    async def scenario() -> None:
+        with ControlledHTTPPeer(
+            "sdk-modern-smoke", protocol_version="2026-07-28"
+        ) as peer:
+            result = await execute_http(
+                (
+                    Action(
+                        "discover",
+                        ActionKind.DISCOVER,
+                        mcp_request_id=1,
+                        protocol_version="2026-07-28",
+                        capabilities={},
+                    ),
+                    Action(
+                        "call-echo",
+                        ActionKind.REQUEST,
+                        mcp_request_id=2,
+                        method="tools/call",
+                        protocol_version="2026-07-28",
+                        capabilities={},
+                        payload={
+                            "name": "echo",
+                            "arguments": {"text": "hello"},
+                        },
+                    ),
+                ),
+                peer.url,
+                timeout=5,
+            )
+
+            assert [event["target_action_id"] for event in result.events] == [
+                "discover",
+                "call-echo",
+            ]
+            assert peer.state.post_protocol_versions == [
+                "2026-07-28",
+                "2026-07-28",
+            ]
+            assert peer.state.post_method_headers == [
+                "server/discover",
+                "tools/call",
+            ]
+            assert peer.state.post_name_headers == [None, "echo"]
+            assert peer.state.post_session_ids == [None, None]
+            assert peer.state.delete_count == 0
+
+    anyio.run(scenario)
+
+
+def test_modern_http_execution_rejects_standalone_get() -> None:
+    async def scenario() -> None:
+        with ControlledHTTPPeer(
+            "sdk-modern-smoke", protocol_version="2026-07-28"
+        ) as peer:
+            with pytest.raises(
+                HTTPProtocolError,
+                match="standalone GET streams are not available",
+            ):
+                await execute_http(
+                    (
+                        Action(
+                            "discover",
+                            ActionKind.DISCOVER,
+                            mcp_request_id=1,
+                            protocol_version="2026-07-28",
+                            capabilities={},
+                        ),
+                        Action(
+                            "open-modern-stream",
+                            ActionKind.OPEN_STREAM,
+                            stream_id="events",
+                        ),
+                    ),
+                    peer.url,
+                    timeout=5,
+                )
+            assert peer.state.post_methods == ["server/discover"]
+            assert peer.state.get_count == 0
+
+    anyio.run(scenario)
+
+
+@pytest.mark.parametrize("payload", ([], 0, "", False))
+def test_modern_request_rejects_falsey_non_object_payloads(payload: object) -> None:
+    action = Action(
+        "invalid-modern-request",
+        ActionKind.REQUEST,
+        mcp_request_id=1,
+        method="tools/list",
+        protocol_version="2026-07-28",
+        capabilities={},
+        payload=payload,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(
+        ExecutionProtocolError,
+        match="modern request payload must be an object or null",
+    ):
+        execution_module._wire_message(action)
+
+
+def test_modern_request_preserves_extension_metadata() -> None:
+    action = Action(
+        "modern-request-meta",
+        ActionKind.REQUEST,
+        mcp_request_id=1,
+        method="tools/list",
+        protocol_version="2026-07-28",
+        capabilities={},
+        payload={
+            "_meta": {
+                "progressToken": "progress-1",
+                "io.modelcontextprotocol/logLevel": "debug",
+            }
+        },
+    )
+
+    message = execution_module._wire_message(action)
+
+    assert message["params"]["_meta"]["progressToken"] == "progress-1"  # type: ignore[index]
+    assert (
+        message["params"]["_meta"]["io.modelcontextprotocol/logLevel"]  # type: ignore[index]
+        == "debug"
+    )
+
+
+def test_modern_discovery_preserves_extension_params_and_metadata() -> None:
+    action = Action(
+        "discovery-meta",
+        ActionKind.DISCOVER,
+        mcp_request_id=1,
+        protocol_version="2026-07-28",
+        capabilities={},
+        payload={"extension": True, "_meta": {"progressToken": "progress-1"}},
+    )
+
+    message = execution_module._wire_message(action)
+
+    assert message["params"]["extension"] is True  # type: ignore[index]
+    assert message["params"]["_meta"]["progressToken"] == "progress-1"  # type: ignore[index]
+
+
+@pytest.mark.parametrize("kind", (ActionKind.DISCOVER, ActionKind.REQUEST))
+def test_modern_actions_reject_non_object_metadata(kind: ActionKind) -> None:
+    action = Action(
+        "invalid-modern-meta",
+        kind,
+        mcp_request_id=1,
+        method="tools/list" if kind is ActionKind.REQUEST else None,
+        protocol_version="2026-07-28",
+        capabilities={},
+        payload={"_meta": []},
+    )
+
+    with pytest.raises(
+        ExecutionProtocolError,
+        match="modern request _meta must be an object or null",
+    ):
+        execution_module._wire_message(action)
+
+
+def test_modern_actions_reject_conflicting_reserved_metadata() -> None:
+    action = Action(
+        "conflicting-modern-meta",
+        ActionKind.REQUEST,
+        mcp_request_id=1,
+        method="tools/list",
+        protocol_version="2026-07-28",
+        capabilities={},
+        payload={"_meta": {"io.modelcontextprotocol/protocolVersion": "2025-11-25"}},
+    )
+
+    with pytest.raises(
+        ExecutionProtocolError,
+        match="conflicts with the canonical action",
+    ):
+        execution_module._wire_message(action)
 
 
 def test_unknown_response_id_is_a_protocol_error() -> None:
