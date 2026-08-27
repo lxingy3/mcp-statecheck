@@ -25,6 +25,17 @@
     "status": "passed"
   },
   "milestone": "M4",
+  "modern_matrix": {
+    "action_profile": "modern-stateless",
+    "cells": 4,
+    "config": "bundled",
+    "golden_match": true,
+    "package_owned": true,
+    "resources_unchanged": true,
+    "sdist_assets": "probed",
+    "status": "passed",
+    "wheel_executed": true
+  },
   "package_version": "0.1.0",
   "python": "3.12.13",
   "pythonpath_cleared": true,

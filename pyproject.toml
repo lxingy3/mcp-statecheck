@@ -43,6 +43,7 @@ packages = ["src/mcp_statecheck"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "benchmarks/mcp-v2.toml" = "mcp_statecheck/benchmarks/mcp-v2.toml"
+"benchmarks/mcp-modern.toml" = "mcp_statecheck/benchmarks/mcp-modern.toml"
 
 [tool.hatch.build.targets.sdist]
 exclude = ["/.hypothesis"]

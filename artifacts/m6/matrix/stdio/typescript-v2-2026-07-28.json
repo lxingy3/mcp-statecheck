@@ -1,0 +1,140 @@
+{
+  "adapter": "typescript-v2",
+  "canonical_actions": [
+    {
+      "action_id": "connect",
+      "capabilities": null,
+      "kind": "connect",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "discover",
+      "capabilities": {},
+      "kind": "discover",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 2,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "list-tools",
+      "capabilities": {},
+      "kind": "request",
+      "mcp_request_id": null,
+      "method": "tools/list",
+      "payload": {},
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 3,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "call-echo",
+      "capabilities": {},
+      "kind": "request",
+      "mcp_request_id": null,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "text": "hello"
+        },
+        "name": "echo"
+      },
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 4,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "close",
+      "capabilities": null,
+      "kind": "close",
+      "mcp_request_id": null,
+      "method": null,
+      "payload": null,
+      "protocol_version": null,
+      "resume_token": null,
+      "sequence": 5,
+      "stream_id": null,
+      "target_action_id": null
+    }
+  ],
+  "cleanup": {
+    "adapter_reaped": true,
+    "adapter_returncode": 0,
+    "client_closed": true,
+    "hang_probe_adapter_reaped": true,
+    "hang_probe_peer_reaped": true,
+    "peer_clean_exit": true,
+    "peer_reaped": true
+  },
+  "fixture_id": "sdk-client-modern-smoke",
+  "generation": {
+    "action_profile": "modern-stateless",
+    "engine": "real SDK client transport matrix",
+    "runner_id": "typescript-v2",
+    "runtime_version": "24.14.1"
+  },
+  "normalized_events": [
+    {
+      "kind": "response",
+      "method": "server/discover",
+      "protocol_version": "2026-07-28",
+      "sequence": 6,
+      "server_info": {
+        "name": "controlled-peer",
+        "version": "0.1"
+      },
+      "supported_protocol_versions": [
+        "2026-07-28"
+      ],
+      "target_action_id": "discover"
+    },
+    {
+      "kind": "response",
+      "method": "tools/list",
+      "sequence": 7,
+      "target_action_id": "list-tools",
+      "tool_names": [
+        "echo"
+      ]
+    },
+    {
+      "is_error": false,
+      "kind": "response",
+      "method": "tools/call",
+      "sequence": 8,
+      "target_action_id": "call-echo",
+      "text": "hello"
+    },
+    {
+      "kind": "peer_observation",
+      "method_order": [
+        "server/discover",
+        "tools/list",
+        "tools/call"
+      ],
+      "negotiated_protocol_version": "2026-07-28",
+      "request_meta_valid": true,
+      "sequence": 9
+    }
+  ],
+  "protocol_version": "2026-07-28",
+  "schema_version": 1,
+  "sdk_version": "2.0.0",
+  "seed": 0,
+  "transport": "stdio"
+}

@@ -44,6 +44,7 @@ from .transports import (
 DEFAULT_PROTOCOL_VERSION = PROTOCOL_VERSIONS[-1]
 DEFAULT_ARTIFACT = Path("artifacts/run.json")
 DEFAULT_MATRIX_OUTPUT = Path("artifacts/matrix")
+DEFAULT_MODERN_MATRIX_OUTPUT = Path("artifacts/m6/matrix")
 _HEADER_NAME = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 _HEADER_VALUE = re.compile(r"^[\t\x20-\x7e]+$")
 
@@ -109,7 +110,12 @@ def _parser() -> argparse.ArgumentParser:
         help="run the locked Python and TypeScript SDK transport matrix",
     )
     matrix.add_argument("config", nargs="?", type=Path)
-    matrix.add_argument("--output", type=Path, default=DEFAULT_MATRIX_OUTPUT)
+    matrix.add_argument(
+        "--profile",
+        choices=("legacy", "modern"),
+        help="select a bundled legacy-session or modern-stateless benchmark",
+    )
+    matrix.add_argument("--output", type=Path)
     matrix.add_argument(
         "--check",
         action="store_true",
@@ -764,15 +770,38 @@ def _run_matrix(args: argparse.Namespace) -> int:
     from .matrix import (
         MatrixError,
         MatrixFailure,
+        _action_profile,
+        _modern_config,
         check_matrix,
         run_matrix,
     )
 
+    if args.profile is not None and args.config is not None:
+        print(
+            "mcp-statecheck: --profile cannot be combined with a config path",
+            file=sys.stderr,
+        )
+        return 2
+    bundled_profile = args.profile or "legacy"
     try:
+        config = _modern_config() if bundled_profile == "modern" else args.config
+        action_profile = (
+            _action_profile(config)
+            if args.config is not None
+            else (
+                "modern-stateless" if bundled_profile == "modern" else "legacy-session"
+            )
+        )
+        cell_count = 4 if action_profile == "modern-stateless" else 16
+        output = args.output or (
+            DEFAULT_MODERN_MATRIX_OUTPUT
+            if action_profile == "modern-stateless"
+            else DEFAULT_MATRIX_OUTPUT
+        )
         if args.check:
-            check_matrix(args.config, args.output)
+            check_matrix(config, output)
         else:
-            written = run_matrix(args.config, args.output)
+            written = run_matrix(config, output)
     except MatrixFailure as exc:
         print(
             f"Matrix found a compatibility failure: {_safe_message(exc)}",
@@ -783,7 +812,10 @@ def _run_matrix(args: argparse.Namespace) -> int:
         print(f"mcp-statecheck: {_safe_message(exc)}", file=sys.stderr)
         return 2
     if args.check:
-        print("Matrix passed: 16/16 locked SDK transport cells match artifacts")
+        print(
+            f"Matrix passed: {cell_count}/{cell_count} locked SDK transport "
+            "cells match artifacts"
+        )
     else:
         print(f"Matrix passed: wrote {len(written)} locked SDK transport traces")
     return 0

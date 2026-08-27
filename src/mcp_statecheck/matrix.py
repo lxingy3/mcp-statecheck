@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -26,11 +26,14 @@ from .transports.stdio import StdioTimeout, StdioTransport
 PACKAGE_ROOT = Path(__file__).resolve().parent
 ASSET_ROOT = PACKAGE_ROOT / "adapters"
 DEFAULT_OUTPUT = Path("artifacts/m3")
+DEFAULT_MODERN_OUTPUT = Path("artifacts/m6/matrix")
 REQUESTED_PROTOCOL_VERSION = "2025-11-25"
+MODERN_PROTOCOL_VERSION = "2026-07-28"
 NODE_VERSION = "24.14.1"
 RUNNER_IDS = ("python-v1", "python-v2", "typescript-v1", "typescript-v2")
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-11-25")
 TRANSPORTS = ("stdio", "streamable-http")
+CLEANUP_REACH_TIMEOUT = 30
 _ISOLATION_VARIABLES = {
     "MCP_STATECHECK_NODE_ENV",
     "NODE_PATH",
@@ -72,6 +75,32 @@ ACTIONS = (
     ),
     Action("close", ActionKind.CLOSE),
 )
+MODERN_ACTIONS = (
+    Action("connect", ActionKind.CONNECT),
+    Action(
+        "discover",
+        ActionKind.DISCOVER,
+        protocol_version=MODERN_PROTOCOL_VERSION,
+        capabilities={},
+    ),
+    Action(
+        "list-tools",
+        ActionKind.REQUEST,
+        method="tools/list",
+        payload={},
+        protocol_version=MODERN_PROTOCOL_VERSION,
+        capabilities={},
+    ),
+    Action(
+        "call-echo",
+        ActionKind.REQUEST,
+        method="tools/call",
+        payload={"name": "echo", "arguments": {"text": "hello"}},
+        protocol_version=MODERN_PROTOCOL_VERSION,
+        capabilities={},
+    ),
+    Action("close", ActionKind.CLOSE),
+)
 
 
 class MatrixError(RuntimeError):
@@ -103,6 +132,16 @@ def _default_config() -> Path:
     if source.is_file():
         return source
     raise MatrixInfrastructureError("bundled benchmark config is missing")
+
+
+def _modern_config() -> Path:
+    bundled = PACKAGE_ROOT / "benchmarks" / "mcp-modern.toml"
+    if bundled.is_file():
+        return bundled
+    source = PACKAGE_ROOT.parents[1] / "benchmarks" / "mcp-modern.toml"
+    if source.is_file():
+        return source
+    raise MatrixInfrastructureError("bundled modern benchmark config is missing")
 
 
 def _materialize_runtime(workdir: Path) -> _MatrixRuntime:
@@ -139,6 +178,34 @@ def _materialize_runtime(workdir: Path) -> _MatrixRuntime:
     )
 
 
+def _materialize_modern_runtime(workdir: Path) -> _MatrixRuntime:
+    import_root = workdir / "adapter"
+    for relative in _PYTHON_ADAPTER_FILES:
+        target = import_root / "mcp_statecheck" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(PACKAGE_ROOT / relative, target)
+
+    python_target = workdir / "python" / "modern"
+    python_target.mkdir(parents=True)
+    for name in ("pyproject.toml", "uv.lock"):
+        shutil.copy2(ASSET_ROOT / "python" / "modern" / name, python_target / name)
+
+    typescript_target = workdir / "typescript" / "v2"
+    typescript_target.mkdir(parents=True)
+    for name in ("package.json", "package-lock.json"):
+        shutil.copy2(ASSET_ROOT / "typescript" / "v2" / name, typescript_target / name)
+
+    typescript_runner = workdir / "typescript_client.mts"
+    shutil.copy2(ASSET_ROOT / "typescript_client.mts", typescript_runner)
+    return _MatrixRuntime(
+        workdir=workdir,
+        import_root=import_root,
+        python_environments={"python-v2": python_target},
+        typescript_environments={"typescript-v2": typescript_target},
+        typescript_runner=typescript_runner,
+    )
+
+
 def _isolated_environment() -> dict[str, str]:
     blocked = {name.casefold() for name in _ISOLATION_VARIABLES}
     return {
@@ -167,8 +234,34 @@ def _load_runners(config_path: Path) -> dict[str, dict[str, object]]:
     ):
         raise MatrixInfrastructureError("benchmark runners must be an array of tables")
     runners = {runner.get("id"): runner for runner in raw_runners}
-    if set(runners) != set(RUNNER_IDS):
+    if len(raw_runners) != len(RUNNER_IDS) or set(runners) != set(RUNNER_IDS):
         raise MatrixInfrastructureError("benchmark runner IDs do not match M3")
+    return runners  # type: ignore[return-value]
+
+
+def _load_modern_runners(config_path: Path) -> dict[str, dict[str, object]]:
+    with config_path.open("rb") as handle:
+        config = tomllib.load(handle)
+    if config.get("schema_version") != 1:
+        raise MatrixInfrastructureError("unsupported benchmark schema")
+    if config.get("action_profile") != "modern-stateless":
+        raise MatrixInfrastructureError("benchmark action profile is not modern")
+    if tuple(config.get("protocol_versions", ())) != (MODERN_PROTOCOL_VERSION,):
+        raise MatrixInfrastructureError(
+            "modern benchmark protocol matrix does not match M6"
+        )
+    if tuple(config.get("transports", ())) != TRANSPORTS:
+        raise MatrixInfrastructureError(
+            "modern benchmark transport matrix does not match M6"
+        )
+    raw_runners = config.get("runners")
+    if not isinstance(raw_runners, list) or not all(
+        isinstance(runner, dict) for runner in raw_runners
+    ):
+        raise MatrixInfrastructureError("benchmark runners must be an array of tables")
+    runners = {runner.get("id"): runner for runner in raw_runners}
+    if len(raw_runners) != 2 or set(runners) != {"python-v2", "typescript-v2"}:
+        raise MatrixInfrastructureError("modern benchmark runner IDs do not match M6")
     return runners  # type: ignore[return-value]
 
 
@@ -335,6 +428,28 @@ def _request(
     )
 
 
+def _modern_request(
+    runner_id: str,
+    runner: Mapping[str, object],
+    transport: str,
+    target: list[str] | str,
+    *,
+    mode: str = "sdk-modern-smoke",
+) -> Envelope:
+    return Envelope(
+        command_id=(f"{runner_id}:{transport}:{MODERN_PROTOCOL_VERSION}:{mode}"),
+        kind="run",
+        payload={
+            "action_profile": "modern-stateless",
+            "actions": [action.to_dict() for action in MODERN_ACTIONS],
+            "runner_id": runner_id,
+            "sdk_version": runner["version"],
+            "target": target,
+            "transport": transport,
+        },
+    )
+
+
 def _peer_observation(
     protocol_version: str,
     transport: str,
@@ -391,6 +506,54 @@ def _expected_events(
     ]
 
 
+def _modern_peer_observation(transport: str) -> dict[str, object]:
+    observation: dict[str, object] = {
+        "kind": "peer_observation",
+        "method_order": ["server/discover", "tools/list", "tools/call"],
+        "negotiated_protocol_version": MODERN_PROTOCOL_VERSION,
+        "request_meta_valid": True,
+    }
+    if transport == "streamable-http":
+        observation.update(
+            {
+                "accept_headers_valid": True,
+                "method_headers_preserved": True,
+                "name_headers_preserved": True,
+                "protocol_headers_preserved": True,
+                "session_absent": True,
+                "standalone_stream_absent": True,
+            }
+        )
+    return observation
+
+
+def _modern_expected_events(transport: str) -> list[dict[str, object]]:
+    return [
+        {
+            "kind": "response",
+            "method": "server/discover",
+            "protocol_version": MODERN_PROTOCOL_VERSION,
+            "server_info": {"name": "controlled-peer", "version": "0.1"},
+            "supported_protocol_versions": [MODERN_PROTOCOL_VERSION],
+            "target_action_id": "discover",
+        },
+        {
+            "kind": "response",
+            "method": "tools/list",
+            "target_action_id": "list-tools",
+            "tool_names": ["echo"],
+        },
+        {
+            "is_error": False,
+            "kind": "response",
+            "method": "tools/call",
+            "target_action_id": "call-echo",
+            "text": "hello",
+        },
+        _modern_peer_observation(transport),
+    ]
+
+
 def _process_running(pid: int) -> bool:
     if os.name == "nt":
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -431,7 +594,7 @@ async def _read_peer_report(report: Path) -> dict[str, object]:
         while not isinstance(result, dict):
             try:
                 result = json.loads(report.read_text(encoding="utf-8"))
-            except (FileNotFoundError, json.JSONDecodeError):
+            except (FileNotFoundError, PermissionError, json.JSONDecodeError):
                 await anyio.sleep(0.05)
         pid = result.get("pid")
         if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
@@ -444,6 +607,44 @@ async def _read_peer_report(report: Path) -> dict[str, object]:
     if not isinstance(final, dict):
         raise MatrixInfrastructureError("controlled SDK peer report must be an object")
     return final
+
+
+def _live_report_methods(report: Path) -> tuple[object, ...]:
+    try:
+        result = json.loads(report.read_text(encoding="utf-8"))
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        return ()
+    if not isinstance(result, dict):
+        return ()
+    methods = result.get("methods")
+    if not isinstance(methods, list):
+        return ()
+    return tuple(methods)
+
+
+async def _wait_for_cleanup_hang(
+    read_methods: Callable[[], Sequence[object]],
+    expected_methods: Sequence[object],
+    *,
+    runner_id: str,
+) -> None:
+    expected = tuple(expected_methods)
+    try:
+        with anyio.fail_after(CLEANUP_REACH_TIMEOUT):
+            while True:
+                observed = tuple(read_methods())
+                if observed == expected:
+                    return
+                if observed and expected[: len(observed)] != observed:
+                    raise MatrixFailure(
+                        f"{runner_id} cleanup probe observed unexpected methods: "
+                        f"{observed!r}"
+                    )
+                await anyio.sleep(0.05)
+    except TimeoutError as exc:
+        raise MatrixFailure(
+            f"{runner_id} cleanup probe did not reach the hanging call"
+        ) from exc
 
 
 def _result_payload(
@@ -581,6 +782,30 @@ async def _stdio_peer_result(
     return result
 
 
+async def _modern_stdio_peer_result(
+    report: Path,
+    *,
+    runner_id: str,
+    require_clean_exit: bool = True,
+) -> dict[str, object]:
+    result = await _read_peer_report(report)
+    if require_clean_exit and result.get("clean_exit") is not True:
+        raise MatrixFailure("controlled modern SDK peer did not exit cleanly")
+    expected_methods = ["server/discover", "tools/list", "tools/call"]
+    if result.get("methods") != expected_methods:
+        raise MatrixFailure(
+            f"{runner_id} controlled modern SDK peer observed the wrong method order: "
+            f"{result.get('methods')!r}"
+        )
+    if result.get("request_meta_valid") != [True, True, True]:
+        raise MatrixFailure("modern SDK client omitted per-request metadata")
+    if result.get("initialize_protocol_versions") != []:
+        raise MatrixFailure("modern SDK client attempted a legacy initialize")
+    if result.get("negotiated_protocol_version") != MODERN_PROTOCOL_VERSION:
+        raise MatrixFailure("controlled modern SDK peer used the wrong protocol")
+    return result
+
+
 def _http_peer_observation(
     peer: object,
     protocol_version: str,
@@ -614,6 +839,40 @@ def _http_peer_observation(
     ):
         raise MatrixFailure("HTTP SDK client lost headers on its optional GET stream")
     return _peer_observation(protocol_version, "streamable-http")
+
+
+def _modern_http_peer_observation(
+    peer: object,
+    *,
+    runner_id: str,
+) -> dict[str, object]:
+    state = peer.state  # type: ignore[attr-defined]
+    methods = ["server/discover", "tools/list", "tools/call"]
+    if state.post_methods != methods or state.stdio_methods != methods:
+        raise MatrixFailure(
+            f"{runner_id} controlled modern HTTP peer observed the wrong methods: "
+            f"POST={state.post_methods!r}, dispatch={state.stdio_methods!r}"
+        )
+    if state.request_meta_valid != [True, True, True]:
+        raise MatrixFailure("modern HTTP SDK client omitted per-request metadata")
+    if state.post_session_ids != [None, None, None] or state.delete_count != 0:
+        raise MatrixFailure("modern HTTP SDK client created a protocol session")
+    if state.post_protocol_versions != [MODERN_PROTOCOL_VERSION] * 3:
+        raise MatrixFailure("modern HTTP SDK client lost its protocol header")
+    if state.post_method_headers != methods:
+        raise MatrixFailure("modern HTTP SDK client lost its method header")
+    if state.post_name_headers != [None, None, "echo"]:
+        raise MatrixFailure("modern HTTP SDK client lost its name header")
+    if any(
+        accept is None
+        or "application/json" not in accept.lower()
+        or "text/event-stream" not in accept.lower()
+        for accept in state.post_accepts
+    ):
+        raise MatrixFailure("modern HTTP SDK client sent an invalid Accept header")
+    if state.get_count != 0:
+        raise MatrixFailure("modern HTTP SDK client opened a standalone GET stream")
+    return _modern_peer_observation("streamable-http")
 
 
 async def _run_stdio_cell(
@@ -695,10 +954,91 @@ async def _run_http_cell(
     }
 
 
+async def _run_modern_stdio_cell(
+    runner_id: str,
+    runner: Mapping[str, object],
+    report: Path,
+    runtime: _MatrixRuntime,
+) -> dict[str, object]:
+    request = _modern_request(
+        runner_id,
+        runner,
+        "stdio",
+        _peer_command(
+            MODERN_PROTOCOL_VERSION,
+            report,
+            mode="sdk-modern-smoke",
+        ),
+    )
+    response, transport = await _exchange(request, runner_id, runtime)
+    events, sdk_version, runtime_version, client_closed = _result_payload(
+        response,
+        command_id=request.command_id,
+        runner_id=runner_id,
+        runner=runner,
+    )
+    peer = await _modern_stdio_peer_result(report, runner_id=runner_id)
+    events.append(_modern_peer_observation("stdio"))
+    if events != _modern_expected_events("stdio"):
+        raise MatrixFailure(f"{runner_id} returned an unexpected modern stdio trace")
+    return {
+        "cleanup": {
+            "adapter_reaped": transport.returncode is not None,
+            "adapter_returncode": transport.returncode,
+            "client_closed": client_closed,
+            "peer_clean_exit": peer["clean_exit"],
+            "peer_reaped": True,
+        },
+        "events": events,
+        "runtime_version": runtime_version,
+        "sdk_version": sdk_version,
+    }
+
+
+async def _run_modern_http_cell(
+    runner_id: str,
+    runner: Mapping[str, object],
+    runtime: _MatrixRuntime,
+) -> dict[str, object]:
+    with _controlled_http_peer("sdk-modern-smoke", MODERN_PROTOCOL_VERSION) as peer:
+        request = _modern_request(
+            runner_id,
+            runner,
+            "streamable-http",
+            peer.url,
+        )
+        response, transport = await _exchange(request, runner_id, runtime)
+        observation = _modern_http_peer_observation(peer, runner_id=runner_id)
+
+    events, sdk_version, runtime_version, client_closed = _result_payload(
+        response,
+        command_id=request.command_id,
+        runner_id=runner_id,
+        runner=runner,
+    )
+    events.append(observation)
+    if events != _modern_expected_events("streamable-http"):
+        raise MatrixFailure(f"{runner_id} returned an unexpected modern HTTP trace")
+    return {
+        "cleanup": {
+            "adapter_reaped": transport.returncode is not None,
+            "adapter_returncode": transport.returncode,
+            "client_closed": client_closed,
+            "listener_closed": True,
+            "session_absent": True,
+        },
+        "events": events,
+        "runtime_version": runtime_version,
+        "sdk_version": sdk_version,
+    }
+
+
 async def _expect_adapter_timeout(
     request: Envelope,
     runner_id: str,
     runtime: _MatrixRuntime,
+    *,
+    await_reached: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     command, environment = _adapter_command(runner_id, runtime)
     transport = StdioTransport(
@@ -708,14 +1048,18 @@ async def _expect_adapter_timeout(
         timeout=5,
         shutdown_timeout=5,
     )
-    try:
-        async with transport:
-            await transport.send(request.to_dict())
+    async with transport:
+        await transport.send(request.to_dict())
+        if await_reached is not None:
+            await await_reached()
+        try:
             await transport.receive()
-    except StdioTimeout:
-        pass
-    else:
-        raise MatrixFailure(f"{runner_id} cleanup probe did not reach its hard timeout")
+        except StdioTimeout:
+            pass
+        else:
+            raise MatrixFailure(
+                f"{runner_id} cleanup probe did not reach its hard timeout"
+            )
     if transport.returncode in {None, 0}:
         raise MatrixFailure(f"{runner_id} cleanup probe did not reap its adapter")
 
@@ -738,7 +1082,16 @@ async def _run_stdio_cleanup_probe(
         ),
         mode="sdk-hang",
     )
-    await _expect_adapter_timeout(request, runner_id, runtime)
+    await _expect_adapter_timeout(
+        request,
+        runner_id,
+        runtime,
+        await_reached=lambda: _wait_for_cleanup_hang(
+            lambda: _live_report_methods(report),
+            PEER_METHODS,
+            runner_id=runner_id,
+        ),
+    )
     await _stdio_peer_result(
         report,
         REQUESTED_PROTOCOL_VERSION,
@@ -760,9 +1113,81 @@ async def _run_http_cleanup_probe(
             peer.url,
             mode="sdk-hang",
         )
-        await _expect_adapter_timeout(request, runner_id, runtime)
+        await _expect_adapter_timeout(
+            request,
+            runner_id,
+            runtime,
+            await_reached=lambda: _wait_for_cleanup_hang(
+                lambda: peer.state.post_methods,
+                PEER_METHODS,
+                runner_id=runner_id,
+            ),
+        )
         if tuple(peer.state.post_methods) != PEER_METHODS:
             raise MatrixFailure("HTTP cleanup probe did not reach the hanging call")
+
+
+async def _run_modern_stdio_cleanup_probe(
+    runner_id: str,
+    runner: Mapping[str, object],
+    report: Path,
+    runtime: _MatrixRuntime,
+) -> None:
+    request = _modern_request(
+        runner_id,
+        runner,
+        "stdio",
+        _peer_command(
+            MODERN_PROTOCOL_VERSION,
+            report,
+            mode="sdk-modern-hang",
+        ),
+        mode="sdk-modern-hang",
+    )
+    await _expect_adapter_timeout(
+        request,
+        runner_id,
+        runtime,
+        await_reached=lambda: _wait_for_cleanup_hang(
+            lambda: _live_report_methods(report),
+            ("server/discover", "tools/list", "tools/call"),
+            runner_id=runner_id,
+        ),
+    )
+    await _modern_stdio_peer_result(
+        report,
+        runner_id=runner_id,
+        require_clean_exit=False,
+    )
+
+
+async def _run_modern_http_cleanup_probe(
+    runner_id: str,
+    runner: Mapping[str, object],
+    runtime: _MatrixRuntime,
+) -> None:
+    with _controlled_http_peer(
+        "sdk-modern-hang",
+        MODERN_PROTOCOL_VERSION,
+    ) as peer:
+        request = _modern_request(
+            runner_id,
+            runner,
+            "streamable-http",
+            peer.url,
+            mode="sdk-modern-hang",
+        )
+        await _expect_adapter_timeout(
+            request,
+            runner_id,
+            runtime,
+            await_reached=lambda: _wait_for_cleanup_hang(
+                lambda: peer.state.post_methods,
+                ("server/discover", "tools/list", "tools/call"),
+                runner_id=runner_id,
+            ),
+        )
+        _modern_http_peer_observation(peer, runner_id=runner_id)
 
 
 async def _build(config_path: Path, output: Path) -> list[Path]:
@@ -832,10 +1257,112 @@ async def _build(config_path: Path, output: Path) -> list[Path]:
     return written
 
 
+async def _build_modern(config_path: Path, output: Path) -> list[Path]:
+    results: dict[tuple[str, str], dict[str, object]] = {}
+    with TemporaryDirectory(prefix="mcp-statecheck-modern-matrix-") as temporary:
+        workdir = Path(temporary)
+        runtime = _materialize_modern_runtime(workdir / "runners")
+        runners = _load_modern_runners(config_path)
+        _prepare_python(runners, runtime)
+        _prepare_typescript(runners, runtime)
+        reports = workdir / "peer-reports"
+        for runner_id in ("python-v2", "typescript-v2"):
+            results[("stdio", runner_id)] = await _run_modern_stdio_cell(
+                runner_id,
+                runners[runner_id],
+                reports / f"{runner_id}-{MODERN_PROTOCOL_VERSION}.json",
+                runtime,
+            )
+            results[("streamable-http", runner_id)] = await _run_modern_http_cell(
+                runner_id,
+                runners[runner_id],
+                runtime,
+            )
+        for runner_id in ("python-v2", "typescript-v2"):
+            await _run_modern_stdio_cleanup_probe(
+                runner_id,
+                runners[runner_id],
+                reports / f"{runner_id}-cleanup.json",
+                runtime,
+            )
+            await _run_modern_http_cleanup_probe(
+                runner_id,
+                runners[runner_id],
+                runtime,
+            )
+            stdio_cleanup = results[("stdio", runner_id)]["cleanup"]
+            http_cleanup = results[("streamable-http", runner_id)]["cleanup"]
+            if not isinstance(stdio_cleanup, dict) or not isinstance(
+                http_cleanup, dict
+            ):
+                raise MatrixInfrastructureError("modern cleanup evidence is invalid")
+            stdio_cleanup.update(
+                {
+                    "hang_probe_adapter_reaped": True,
+                    "hang_probe_peer_reaped": True,
+                }
+            )
+            http_cleanup.update(
+                {
+                    "hang_probe_adapter_reaped": True,
+                    "hang_probe_listener_closed": True,
+                }
+            )
+
+    written: list[Path] = []
+    for transport in TRANSPORTS:
+        for runner_id in ("python-v2", "typescript-v2"):
+            result = results[(transport, runner_id)]
+            recorder = TraceRecorder(
+                protocol_version=MODERN_PROTOCOL_VERSION,
+                adapter=runner_id,
+                sdk_version=str(result["sdk_version"]),
+                transport=transport,
+                seed=0,
+                fixture_id="sdk-client-modern-smoke",
+                cleanup=result["cleanup"],  # type: ignore[arg-type]
+                generation={
+                    "action_profile": "modern-stateless",
+                    "engine": "real SDK client transport matrix",
+                    "runner_id": runner_id,
+                    "runtime_version": result["runtime_version"],
+                },
+            )
+            for action in MODERN_ACTIONS:
+                recorder.record_action(action.to_dict())
+            for event in result["events"]:  # type: ignore[union-attr]
+                recorder.record_event(event)
+            written.append(
+                recorder.write(
+                    output / transport / f"{runner_id}-{MODERN_PROTOCOL_VERSION}.json"
+                )
+            )
+    return written
+
+
+def _action_profile(config_path: Path) -> str:
+    try:
+        with config_path.open("rb") as handle:
+            config = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise MatrixInfrastructureError(
+            f"benchmark config could not be read: {exc}"
+        ) from exc
+    profile = config.get("action_profile", "legacy-session")
+    if profile not in {"legacy-session", "modern-stateless"}:
+        raise MatrixInfrastructureError(
+            f"unsupported benchmark action profile: {profile}"
+        )
+    return profile
+
+
 def _run_build(config_path: Path | None, output: Path) -> list[Path]:
     config = _default_config() if config_path is None else config_path
     try:
-        return anyio.run(_build, config, output)
+        build = (
+            _build_modern if _action_profile(config) == "modern-stateless" else _build
+        )
+        return anyio.run(build, config, output)
     except MatrixError:
         raise
     except Exception as exc:
@@ -843,7 +1370,7 @@ def _run_build(config_path: Path | None, output: Path) -> list[Path]:
 
 
 def run_matrix(config_path: Path | None, output: Path) -> list[Path]:
-    """Run all 16 locked SDK transport cells and write their traces."""
+    """Run the selected locked SDK transport matrix and write its traces."""
 
     return _run_build(config_path, output)
 
@@ -868,7 +1395,7 @@ def check_matrix(config_path: Path | None, expected: Path) -> None:
                 f"expected artifacts could not be inspected: {exc}"
             ) from exc
         if checked_names != expected_names:
-            raise MatrixFailure("checked-in M3 artifact set does not match the matrix")
+            raise MatrixFailure("checked-in artifact set does not match the matrix")
         for path in generated:
             checked = expected / path.relative_to(actual)
             try:
@@ -879,7 +1406,7 @@ def check_matrix(config_path: Path | None, expected: Path) -> None:
                 ) from exc
             if not matches:
                 raise MatrixFailure(
-                    f"checked-in M3 artifact is stale: {path.relative_to(actual)}"
+                    f"checked-in matrix artifact is stale: {path.relative_to(actual)}"
                 )
 
 
@@ -887,13 +1414,16 @@ def script_main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("config", nargs="?", type=Path)
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     try:
+        config = _default_config() if args.config is None else args.config
+        modern = _action_profile(config) == "modern-stateless"
+        output = args.output or (DEFAULT_MODERN_OUTPUT if modern else DEFAULT_OUTPUT)
         if args.check:
-            check_matrix(args.config, args.output)
+            check_matrix(args.config, output)
         else:
-            written = run_matrix(args.config, args.output)
+            written = run_matrix(args.config, output)
     except MatrixFailure as exc:
         print(f"mcp-statecheck matrix: {exc}", file=sys.stderr)
         return 1
@@ -901,9 +1431,15 @@ def script_main(argv: Sequence[str] | None = None) -> int:
         print(f"mcp-statecheck matrix: {exc}", file=sys.stderr)
         return 2
     if args.check:
-        print("M3 client matrix passed: 16/16 real SDK transport cells match artifacts")
+        milestone = "M6.1" if modern else "M3"
+        cells = 4 if modern else 16
+        print(
+            f"{milestone} client matrix passed: {cells}/{cells} real SDK "
+            "transport cells match artifacts"
+        )
     else:
-        print(f"M3 client matrix passed: wrote {len(written)} real SDK traces")
+        milestone = "M6.1" if modern else "M3"
+        print(f"{milestone} client matrix passed: wrote {len(written)} real SDK traces")
     return 0
 
 

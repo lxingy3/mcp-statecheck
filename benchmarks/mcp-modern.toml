@@ -1,0 +1,17 @@
+schema_version = 1
+action_profile = "modern-stateless"
+verified_at = "2026-08-27T00:00:00-04:00"
+protocol_versions = ["2026-07-28"]
+transports = ["stdio", "streamable-http"]
+
+[[runners]]
+id = "python-v2"
+runtime = "python"
+package = "mcp"
+version = "2.1.1"
+
+[[runners]]
+id = "typescript-v2"
+runtime = "node"
+package = "@modelcontextprotocol/client"
+version = "2.0.0"
