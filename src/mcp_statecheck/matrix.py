@@ -21,7 +21,7 @@ from ._controlled_peer import ControlledHTTPPeer
 from .adapters.jsonl import Envelope
 from .model import Action, ActionKind
 from .trace import TraceRecorder
-from .transports.stdio import StdioTimeout, StdioTransport
+from .transports.stdio import StdioError, StdioTimeout, StdioTransport
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 ASSET_ROOT = PACKAGE_ROOT / "adapters"
@@ -1040,6 +1040,9 @@ async def _expect_adapter_timeout(
     *,
     await_reached: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
+    transport_name = request.payload.get("transport")
+    if not isinstance(transport_name, str) or not transport_name:
+        transport_name = "unknown-transport"
     command, environment = _adapter_command(runner_id, runtime)
     transport = StdioTransport(
         command,
@@ -1048,18 +1051,58 @@ async def _expect_adapter_timeout(
         timeout=5,
         shutdown_timeout=5,
     )
-    async with transport:
-        await transport.send(request.to_dict())
-        if await_reached is not None:
-            await await_reached()
-        try:
-            await transport.receive()
-        except StdioTimeout:
-            pass
-        else:
-            raise MatrixFailure(
-                f"{runner_id} cleanup probe did not reach its hard timeout"
+    response_received = False
+    unexpected_response: object = None
+    stream_error: StdioError | None = None
+    cleanup_error: Exception | None = None
+    try:
+        async with transport:
+            await transport.send(request.to_dict())
+            if await_reached is not None:
+                await await_reached()
+            try:
+                unexpected_response = await transport.receive()
+                response_received = True
+            except StdioTimeout:
+                pass
+            except StdioError as exc:
+                stream_error = exc
+    except Exception as exc:
+        if not response_received and stream_error is None:
+            raise
+        cleanup_error = exc
+    stderr_detail = ""
+    cleanup_detail = ""
+    if response_received or stream_error is not None:
+        stderr = transport.stderr.strip()
+        stderr_detail = f"\nadapter stderr:\n{stderr}" if stderr else ""
+        if cleanup_error is not None:
+            cleanup_detail = (
+                f"\ncleanup failed: {type(cleanup_error).__name__}: {cleanup_error}"
             )
+    if response_received:
+        response = json.dumps(
+            unexpected_response,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        failure = MatrixFailure(
+            f"{runner_id} {transport_name} cleanup probe returned before its "
+            f"hard timeout: {response}\nadapter returncode: "
+            f"{transport.returncode}{stderr_detail}{cleanup_detail}"
+        )
+        if cleanup_error is not None:
+            raise failure from cleanup_error
+        raise failure
+    if stream_error is not None:
+        failure = MatrixFailure(
+            f"{runner_id} {transport_name} cleanup probe adapter stream failed "
+            f"before its hard timeout: {type(stream_error).__name__}: "
+            f"{stream_error}\nadapter returncode: "
+            f"{transport.returncode}{stderr_detail}{cleanup_detail}"
+        )
+        raise failure from stream_error
     if transport.returncode in {None, 0}:
         raise MatrixFailure(f"{runner_id} cleanup probe did not reap its adapter")
 

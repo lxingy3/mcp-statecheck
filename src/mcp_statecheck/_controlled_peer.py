@@ -397,13 +397,15 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
         self,
         mode: str,
         protocol_version: str = "2025-11-25",
+        *,
+        _hang_release: threading.Event | None = None,
     ) -> None:
         self.state = PeerState(
             mode,
             negotiated_protocol_version=protocol_version,
         )
         state = self.state
-        hang_release = threading.Event()
+        hang_release = threading.Event() if _hang_release is None else _hang_release
         self._hang_release = hang_release
 
         class Handler(BaseHTTPRequestHandler):
@@ -452,7 +454,9 @@ class ControlledHTTPPeer(AbstractContextManager["ControlledHTTPPeer"]):
                         self._send(202)
                         return
                     if not replies:
-                        hang_release.wait(timeout=30)
+                        # The matrix owns the deadline. A second wall-clock timeout
+                        # can win this race if a CI runner is suspended.
+                        hang_release.wait()
                         return
                     if len(replies) != 1:
                         raise RuntimeError("SDK HTTP mode returned multiple replies")

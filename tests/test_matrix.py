@@ -6,6 +6,7 @@ import pytest
 
 import mcp_statecheck.cli as cli
 import mcp_statecheck.matrix as matrix
+from mcp_statecheck.transports.stdio import StdioError
 
 
 def test_runtime_materialization_copies_only_locked_inputs(tmp_path: Path) -> None:
@@ -403,7 +404,7 @@ def test_cleanup_reach_wait_has_an_independent_deadline(
 @pytest.mark.parametrize(
     ("times_out", "returncode", "message"),
     (
-        (False, 1, "did not reach its hard timeout"),
+        (False, 1, "returned before its hard timeout"),
         (True, 0, "did not reap its adapter"),
     ),
 )
@@ -415,6 +416,8 @@ def test_cleanup_probe_rejects_a_response_or_unreaped_adapter(
     message: str,
 ) -> None:
     class FakeTransport:
+        stderr = ""
+
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             self.returncode = returncode
 
@@ -451,6 +454,125 @@ def test_cleanup_probe_rejects_a_response_or_unreaped_adapter(
 
     with pytest.raises(matrix.MatrixFailure, match=message):
         matrix.anyio.run(probe)
+
+
+def test_cleanup_probe_reports_an_unexpected_adapter_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTransport:
+        returncode = 1
+        stderr = "TypeScript SDK cell failed: fetch failed"
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeTransport:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            raise RuntimeError("child pipes could not be closed")
+
+        async def send(self, _message: object) -> None:
+            pass
+
+        async def receive(self) -> dict[str, object]:
+            return {
+                "schema_version": 1,
+                "command_id": "cleanup-probe",
+                "kind": "failure",
+                "payload": {
+                    "error_type": "TypeError",
+                    "message": "fetch failed",
+                    "runner_id": "typescript-v1",
+                },
+            }
+
+    runtime = matrix._MatrixRuntime(
+        workdir=tmp_path,
+        import_root=tmp_path,
+        python_environments={},
+        typescript_environments={},
+        typescript_runner=tmp_path / "typescript_client.mts",
+    )
+    request = matrix.Envelope(
+        command_id="cleanup-probe",
+        kind="run",
+        payload={"transport": "streamable-http"},
+    )
+    monkeypatch.setattr(matrix, "StdioTransport", FakeTransport)
+    monkeypatch.setattr(
+        matrix,
+        "_adapter_command",
+        lambda _runner_id, _runtime: (["adapter"], {}),
+    )
+
+    async def probe() -> None:
+        await matrix._expect_adapter_timeout(request, "typescript-v1", runtime)
+
+    with pytest.raises(matrix.MatrixFailure) as raised:
+        matrix.anyio.run(probe)
+
+    message = str(raised.value)
+    assert "typescript-v1 streamable-http cleanup probe returned" in message
+    assert '"message":"fetch failed"' in message
+    assert "TypeScript SDK cell failed: fetch failed" in message
+    assert "cleanup failed: RuntimeError: child pipes could not be closed" in message
+
+
+def test_cleanup_probe_reports_an_adapter_stream_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeTransport:
+        returncode = 7
+        stderr = "adapter process exited unexpectedly"
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeTransport:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def send(self, _message: object) -> None:
+            pass
+
+        async def receive(self) -> dict[str, object]:
+            raise StdioError("child stdout closed before a complete message")
+
+    runtime = matrix._MatrixRuntime(
+        workdir=tmp_path,
+        import_root=tmp_path,
+        python_environments={},
+        typescript_environments={},
+        typescript_runner=tmp_path / "typescript_client.mts",
+    )
+    request = matrix.Envelope(
+        command_id="cleanup-probe",
+        kind="run",
+        payload={"transport": "stdio"},
+    )
+    monkeypatch.setattr(matrix, "StdioTransport", FakeTransport)
+    monkeypatch.setattr(
+        matrix,
+        "_adapter_command",
+        lambda _runner_id, _runtime: (["adapter"], {}),
+    )
+
+    async def probe() -> None:
+        await matrix._expect_adapter_timeout(request, "typescript-v1", runtime)
+
+    with pytest.raises(matrix.MatrixFailure) as raised:
+        matrix.anyio.run(probe)
+
+    message = str(raised.value)
+    assert "typescript-v1 stdio cleanup probe adapter stream failed" in message
+    assert "child stdout closed before a complete message" in message
+    assert "adapter returncode: 7" in message
+    assert "adapter process exited unexpectedly" in message
 
 
 def test_cleanup_probe_does_not_treat_a_send_timeout_as_a_hang(

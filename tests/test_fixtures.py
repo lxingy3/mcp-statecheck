@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import anyio
+import httpx
 import pytest
 
 from mcp_statecheck._controlled_peer import ControlledHTTPPeer, PeerState
@@ -18,6 +21,21 @@ from mcp_statecheck.transports import (
 
 FIXTURE_PEER = Path(__file__).parent / "fixtures" / "peer.py"
 PROTOCOL_VERSION = "2025-11-25"
+
+
+class _BlockingHangRelease:
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.released = threading.Event()
+        self.timeout: float | None = -1
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.timeout = timeout
+        self.entered.set()
+        return self.released.wait()
+
+    def set(self) -> None:
+        self.released.set()
 
 
 def _initialize(request_id: int = 1) -> dict[str, Any]:
@@ -87,6 +105,39 @@ def test_http_error_is_not_normalized_as_timeout() -> None:
         assert artifact["normalized_events"][0]["kind"] == "http_error"
 
     anyio.run(run)
+
+
+def test_sdk_http_hang_waits_without_an_independent_deadline() -> None:
+    release = _BlockingHangRelease()
+
+    def post_hanging_call(url: str) -> None:
+        try:
+            httpx.post(
+                url,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "echo",
+                        "arguments": {"text": "hello"},
+                    },
+                },
+                timeout=None,
+            )
+        except httpx.TransportError:
+            pass
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with ControlledHTTPPeer("sdk-hang", _hang_release=release) as peer:
+            request = executor.submit(post_hanging_call, peer.url)
+            assert release.entered.wait(timeout=5)
+            assert release.timeout is None
+            assert not request.done()
+
+        request.result(timeout=5)
+
+    assert release.released.is_set()
 
 
 def test_duplicate_request_ids_remain_two_logical_actions() -> None:
