@@ -687,12 +687,22 @@ class StreamableHTTPTransport:
             "prompts/get",
             "resources/read",
             "tools/call",
+            "tasks/get",
+            "tasks/update",
+            "tasks/cancel",
         }:
             return None
         params = message.get("params")
         if not isinstance(params, Mapping):
             raise HTTPProtocolError("named modern request requires object params")
-        field = "uri" if message.get("method") == "resources/read" else "name"
+        method = message.get("method")
+        field = (
+            "taskId"
+            if method in {"tasks/get", "tasks/update", "tasks/cancel"}
+            else "uri"
+            if method == "resources/read"
+            else "name"
+        )
         value = params.get(field)
         if not isinstance(value, str) or not value:
             raise HTTPProtocolError(f"modern request requires a non-empty {field}")
