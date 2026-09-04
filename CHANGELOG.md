@@ -10,6 +10,8 @@
   completion, JSON-RPC errors, and tool errors; modern HTTP task routing uses
   the task ID in `Mcp-Name`.
 - Added cross-platform Tasks acceptance and clean-wheel/sdist replay coverage.
+- Fixed transient Windows report-replacement failures during controlled stdio
+  cleanup probes with bounded retries that preserve atomic snapshots.
 - Added a separate MCP `2026-07-28` stateless matrix with pinned Python
   `mcp 2.1.1` and TypeScript `@modelcontextprotocol/client 2.0.0` clients over
   stdio and Streamable HTTP.
