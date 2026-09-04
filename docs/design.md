@@ -10,7 +10,8 @@ Version 0.1 supports MCP `2025-06-18` and `2025-11-25`. It covers stdio and
 Streamable HTTP, including initialization, capability negotiation, concurrent
 requests, cancellation, sessions, SSE resumption, and transport errors. M6.1
 adds the stateless `2026-07-28` revision through a separate action profile.
-Tasks and other agent protocols remain outside the implemented core.
+M6.2 adds a separate Tasks extension wire profile against controlled peers;
+SDK-native Tasks coverage and other agent protocols remain outside scope.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -70,6 +71,8 @@ value.
   v0.1 release gate.
 - M5: pinned external-server canaries and release-bound application recipes.
 - M6.1: a separate modern stateless SDK matrix for MCP `2026-07-28`.
+- M6.2: generated Tasks wire sequences, an independent oracle, and minimized
+  controlled failures over stdio and Streamable HTTP.
 
 M1 fixtures preserve the observations needed for later detection. They do not
 claim the final fixture gate, which requires M2 shrinking and replay.
@@ -282,6 +285,42 @@ The `deep` profile is deliberately absent from v0.1. Package-controlled replay
 closes the deterministic fixture gate without treating the M2 fault-injection
 state machines as a safe substitute for generated testing of an arbitrary
 server.
+
+## M6.2 Tasks profile
+
+The Tasks extension is versioned independently from the core protocol. M6.2
+uses its `2026-07-28` specification and keeps the M6.1 valid-SDK matrix separate.
+`tasks.py` evaluates observed task states without importing the controlled peer
+or reading its fault mode. It tracks task identity, state transitions, input-key
+meaning, result shapes, capabilities, and acknowledgement semantics.
+
+Task management requests reuse canonical `REQUEST` actions. Their
+`target_action_id` identifies an earlier `tools/call`; `task_execution.py` binds
+`params.taskId` from that call's actual successful task result immediately before
+sending. Plans are validated before transport startup. Execution is sequential,
+with separately bounded startup, a plan deadline, and transport cleanup after
+the plan's cancellation scope has unwound. The profile does not dispatch inputs
+to real users or models: all elicitation responses belong to a controlled fixture.
+
+The Hypothesis state machine generates polling, input responses, and unrelated
+tool-list requests. Each candidate runs on a fresh peer. Three mutations cover
+terminal regression, changed input-key meaning, and missing completion results.
+Shrunk traces are reloaded through the public replay entry point and must retain
+one signature across ten executions. Recipe version 2 binds the fixture, modern
+protocol, wire adapter, supported transports, capabilities, and controlled tool
+parameters; version 1 retains its existing 2025 fixture contract.
+
+`artifacts/m6-tasks` contains six failure traces and one acceptance summary. Two
+fresh campaigns must produce byte-identical artifacts. Normalized observations
+must agree across transports. Ten conforming scenario/transport runs check for
+false positives, including cooperative cancellation and eventually consistent
+updates. Wheel and sdist installations replay all six artifacts from an unrelated
+working directory containing a deliberately untrusted package name.
+
+The oracle validates task-specific state and envelope fields, not every nested
+tool-content or elicitation schema. It does not claim coverage of subscriptions,
+concurrent observations, arbitrary targets, or every Tasks implementation. The
+research note records the currently pinned SDK API limits.
 
 ## v0.1 release gate
 

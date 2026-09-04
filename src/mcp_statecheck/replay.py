@@ -135,6 +135,11 @@ async def replay_artifact(
     """Replay one allowlisted package-controlled failure artifact."""
 
     artifact = load_artifact(path)
+    recipe = artifact.get("target_recipe")
+    if isinstance(recipe, dict) and recipe.get("kind") == "controlled-tasks":
+        from .task_campaign import replay_task_artifact
+
+        return await replay_task_artifact(artifact, attempts, timeout)
     fixture = _target_fixture(artifact)
     actions, signature = _failure(artifact)
     if fixture.transport == "streamable-http":

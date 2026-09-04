@@ -1,0 +1,385 @@
+{
+  "adapter": "tasks-wire",
+  "canonical_actions": [
+    {
+      "action_id": "create",
+      "capabilities": {
+        "elicitation": {
+          "form": {}
+        },
+        "extensions": {
+          "io.modelcontextprotocol/tasks": {}
+        }
+      },
+      "kind": "request",
+      "mcp_request_id": 1,
+      "method": "tools/call",
+      "payload": {
+        "arguments": {
+          "scenario": "input"
+        },
+        "name": "task_fixture"
+      },
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    },
+    {
+      "action_id": "step-2",
+      "capabilities": {
+        "elicitation": {
+          "form": {}
+        },
+        "extensions": {
+          "io.modelcontextprotocol/tasks": {}
+        }
+      },
+      "kind": "request",
+      "mcp_request_id": 2,
+      "method": "tasks/get",
+      "payload": {},
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 3,
+      "stream_id": null,
+      "target_action_id": "create"
+    },
+    {
+      "action_id": "step-3",
+      "capabilities": {
+        "elicitation": {
+          "form": {}
+        },
+        "extensions": {
+          "io.modelcontextprotocol/tasks": {}
+        }
+      },
+      "kind": "request",
+      "mcp_request_id": 3,
+      "method": "tasks/update",
+      "payload": {
+        "inputResponses": {
+          "approval": {
+            "action": "accept",
+            "content": {
+              "approved": true
+            }
+          }
+        }
+      },
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 5,
+      "stream_id": null,
+      "target_action_id": "create"
+    },
+    {
+      "action_id": "step-4",
+      "capabilities": {
+        "elicitation": {
+          "form": {}
+        },
+        "extensions": {
+          "io.modelcontextprotocol/tasks": {}
+        }
+      },
+      "kind": "request",
+      "mcp_request_id": 4,
+      "method": "tasks/get",
+      "payload": {},
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 7,
+      "stream_id": null,
+      "target_action_id": "create"
+    }
+  ],
+  "cleanup": {
+    "server_reaped": true
+  },
+  "failure": {
+    "evidence": {
+      "method": "tasks/get",
+      "subject": "server"
+    },
+    "kind": "tasks.input_request_key_reused",
+    "minimized_reproducer": [
+      {
+        "action_id": "create",
+        "capabilities": {
+          "elicitation": {
+            "form": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "kind": "request",
+        "mcp_request_id": 1,
+        "method": "tools/call",
+        "payload": {
+          "arguments": {
+            "scenario": "input"
+          },
+          "name": "task_fixture"
+        },
+        "protocol_version": "2026-07-28",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      },
+      {
+        "action_id": "step-2",
+        "capabilities": {
+          "elicitation": {
+            "form": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "kind": "request",
+        "mcp_request_id": 2,
+        "method": "tasks/get",
+        "payload": {},
+        "protocol_version": "2026-07-28",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": "create"
+      },
+      {
+        "action_id": "step-3",
+        "capabilities": {
+          "elicitation": {
+            "form": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "kind": "request",
+        "mcp_request_id": 3,
+        "method": "tasks/update",
+        "payload": {
+          "inputResponses": {
+            "approval": {
+              "action": "accept",
+              "content": {
+                "approved": true
+              }
+            }
+          }
+        },
+        "protocol_version": "2026-07-28",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": "create"
+      },
+      {
+        "action_id": "step-4",
+        "capabilities": {
+          "elicitation": {
+            "form": {}
+          },
+          "extensions": {
+            "io.modelcontextprotocol/tasks": {}
+          }
+        },
+        "kind": "request",
+        "mcp_request_id": 4,
+        "method": "tasks/get",
+        "payload": {},
+        "protocol_version": "2026-07-28",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": "create"
+      }
+    ],
+    "signature": "mcp-statecheck:v1:2af43748352d55ae9fe31234529ac9291869743a35cb65420e7cee7cc8b97b2b",
+    "spec_reference": "https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks",
+    "trigger_action_id": "step-4"
+  },
+  "fixture_id": "task-input-key-reuse",
+  "generation": {
+    "engine": "Hypothesis RuleBasedStateMachine",
+    "profile": "tasks",
+    "settings": {
+      "database": null,
+      "deadline": null,
+      "max_examples": 30,
+      "phases": [
+        "generate",
+        "shrink"
+      ],
+      "report_multiple_bugs": false,
+      "stateful_step_count": 10
+    },
+    "task_count": 1,
+    "transitions": [
+      "created->working",
+      "working->input_required"
+    ],
+    "version": "6.156.6"
+  },
+  "normalized_events": [
+    {
+      "kind": "response",
+      "mcp_request_id": 1,
+      "outcome": "success",
+      "payload": {
+        "createdAt": "2026-09-04T00:00:00Z",
+        "lastUpdatedAt": "2026-09-04T00:00:00Z",
+        "pollIntervalMs": 0,
+        "resultType": "task",
+        "status": "working",
+        "taskId": "task-1",
+        "ttlMs": null
+      },
+      "sequence": 2,
+      "target_action_id": "create"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 2,
+      "outcome": "success",
+      "payload": {
+        "createdAt": "2026-09-04T00:00:00Z",
+        "inputRequests": {
+          "approval": {
+            "method": "elicitation/create",
+            "params": {
+              "message": "Approve the operation.",
+              "mode": "form",
+              "requestedSchema": {
+                "properties": {
+                  "approved": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "approved"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "lastUpdatedAt": "2026-09-04T00:00:00Z",
+        "pollIntervalMs": 0,
+        "resultType": "complete",
+        "status": "input_required",
+        "taskId": "task-1",
+        "ttlMs": null
+      },
+      "sequence": 4,
+      "target_action_id": "step-2"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 3,
+      "outcome": "success",
+      "payload": {
+        "resultType": "complete"
+      },
+      "sequence": 6,
+      "target_action_id": "step-3"
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 4,
+      "outcome": "success",
+      "payload": {
+        "createdAt": "2026-09-04T00:00:00Z",
+        "inputRequests": {
+          "approval": {
+            "method": "elicitation/create",
+            "params": {
+              "message": "Approve the second operation.",
+              "mode": "form",
+              "requestedSchema": {
+                "properties": {
+                  "approved": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "approved"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "lastUpdatedAt": "2026-09-04T00:00:00Z",
+        "pollIntervalMs": 0,
+        "resultType": "complete",
+        "status": "input_required",
+        "taskId": "task-1",
+        "ttlMs": null
+      },
+      "sequence": 8,
+      "target_action_id": "step-4"
+    }
+  ],
+  "protocol_version": "2026-07-28",
+  "replay": {
+    "attempts": 10,
+    "cleanups": [
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      }
+    ],
+    "matched": 10,
+    "returncodes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "signature": "mcp-statecheck:v1:2af43748352d55ae9fe31234529ac9291869743a35cb65420e7cee7cc8b97b2b"
+  },
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 20260904,
+  "target_recipe": {
+    "fixture_id": "task-input-key-reuse",
+    "kind": "controlled-tasks",
+    "version": 2
+  },
+  "transport": "stdio"
+}

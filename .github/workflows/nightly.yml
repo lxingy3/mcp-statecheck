@@ -43,6 +43,9 @@ jobs:
           scripts/run_m5_filesystem_acceptance.py
           --check
           --output "${{ runner.temp }}/m5-filesystem"
+      - name: Run M6.2 Tasks state-machine acceptance
+        timeout-minutes: 8
+        run: uv run --locked --no-dev python scripts/run_m6_tasks_acceptance.py --check
       - name: Run Git application server acceptance
         timeout-minutes: 8
         run: >-

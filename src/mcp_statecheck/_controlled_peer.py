@@ -8,6 +8,7 @@ import os
 import socket
 import sys
 import threading
+import time
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
@@ -37,6 +38,8 @@ OBSERVED_STDIO_MODES = SDK_MODES | {
     "initialize-error",
     "initialize-invalid-result",
 }
+_REPORT_REPLACE_ATTEMPTS = 20
+_REPORT_REPLACE_DELAY = 0.025
 
 
 def _result(request_id: object, result: dict[str, Any]) -> dict[str, Any]:
@@ -333,12 +336,29 @@ class PeerState:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps({**payload, "pid": os.getpid()}, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    os.replace(temporary, path)
+    try:
+        temporary.write_text(
+            json.dumps({**payload, "pid": os.getpid()}, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        # Windows readers can temporarily deny replacement of the destination.
+        # Retry the same complete snapshot without exposing a partial report.
+        for attempt in range(_REPORT_REPLACE_ATTEMPTS):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                if attempt + 1 == _REPORT_REPLACE_ATTEMPTS:
+                    raise
+                time.sleep(_REPORT_REPLACE_DELAY)
+    except BaseException as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            exc.add_note(f"Could not remove temporary peer report: {cleanup_error}")
+        raise
 
 
 def _write_stdio_report(
