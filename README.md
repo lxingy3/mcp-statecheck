@@ -63,11 +63,12 @@ tool, verifies response shapes, and confirms transport cleanup.
 | Installable CLI | Explicit-target checks, allowlisted replay, offline reports, and separate locked legacy and modern SDK matrices with `0`/`1`/`2` exit codes |
 | Reports | Deterministic JSON, JUnit XML, SARIF 2.1.0, and a script-free single-file HTML trace explorer |
 | Automation | A JSON-argv composite Action plus scheduled macOS runs of the full SDK matrix and clean-package acceptance |
-| Controlled peers | Five controlled scenarios exercised over real stdio or localhost HTTP connections |
+| M1 controlled peers | Five original controlled scenarios exercised over real stdio or localhost HTTP connections |
 | M2 controlled corpus | Five seeded RuleBasedStateMachine failures with stable signatures, shrinking, saved-trace reload, and 10-run replay |
 | M3 real SDK clients | Four isolated Python and TypeScript SDK runners across two released protocol revisions and both transports, with 16/16 cells checked against saved traces |
 | M5 application servers | Release-bound, allowlisted recipes drive pinned Filesystem and Git reference servers through verified state transitions and reproduce one normalized trace across ten fresh processes |
 | M6.1 modern SDK clients | A separate four-cell `2026-07-28` profile covers Python `mcp 2.1.1` and TypeScript client `2.0.0` over stdio and Streamable HTTP |
+| M6.2 Tasks wire profile | Three generated controlled defects across both transports, with independent state checks, minimized traces, 10-run replay, and ten conforming baselines |
 
 ```mermaid
 flowchart LR
@@ -77,7 +78,7 @@ flowchart LR
     D --> E["Wire observations"]
     B --> F["Versioned trace"]
     E --> F
-    F --> G["Hypothesis shrink<br/>(all five controlled failures)"]
+    F --> G["Hypothesis shrink<br/>(five M2 controlled failures)"]
     G --> H["Saved-trace reload<br/>and 10-run replay"]
     F --> I["JSON · JUnit · SARIF · offline HTML"]
 ```

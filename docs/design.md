@@ -10,7 +10,8 @@ Version 0.1 supports MCP `2025-06-18` and `2025-11-25`. It covers stdio and
 Streamable HTTP, including initialization, capability negotiation, concurrent
 requests, cancellation, sessions, SSE resumption, and transport errors. M6.1
 adds the stateless `2026-07-28` revision through a separate action profile.
-Tasks and other agent protocols remain outside the implemented core.
+M6.2 adds a separate Tasks extension wire profile against controlled peers;
+SDK-native Tasks coverage and other agent protocols remain outside scope.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -70,6 +71,8 @@ value.
   v0.1 release gate.
 - M5: pinned external-server canaries and release-bound application recipes.
 - M6.1: a separate modern stateless SDK matrix for MCP `2026-07-28`.
+- M6.2: generated Tasks wire sequences, an independent oracle, and minimized
+  controlled failures over stdio and Streamable HTTP.
 
 M1 fixtures preserve the observations needed for later detection. They do not
 claim the final fixture gate, which requires M2 shrinking and replay.
