@@ -237,6 +237,44 @@ bounded valid-client profile: Tasks, subscriptions, modern cancellation
 sequences, custom `x-mcp-header` parameters, arbitrary targets, and the `deep`
 profile remain outside this slice.
 
+## Tasks state-machine profile
+
+The `tasks` command exercises the `io.modelcontextprotocol/tasks` extension
+against package-controlled peers. It generates action sequences with Hypothesis,
+shrinks a detected defect, and reloads the saved artifact for ten fresh replays.
+Both stdio and Streamable HTTP use task handles returned by the server.
+
+```console
+$ uv run mcp-statecheck tasks --fixture task-result-shape --transport streamable-http --output artifacts/tasks-failure.json --html artifacts/tasks-failure.html
+Tasks fixture reproduced: tasks.invalid_result; 2 actions; replay 10/10; wrote artifacts/tasks-failure.json
+```
+
+The command exits with code `1` when it reproduces the selected defect, following
+the same failure convention as `check` and `replay`. It accepts no external target.
+The version 2 replay recipe selects a known packaged fixture, never an executable
+command embedded in an artifact.
+
+| Controlled defect | Minimum requests | Observable failure |
+| --- | ---: | --- |
+| `task-terminal-regression` | 3 | A completed task returns to working with no expiry |
+| `task-input-key-reuse` | 4 | An input key is reused for a different request |
+| `task-result-shape` | 2 | A completed task omits its final result |
+
+Acceptance also checks five conforming scenarios on both transports: completion,
+input/update, delayed cancellation, protocol failure, and a completed tool error.
+Cancellation acknowledgements do not imply an immediate state change; the oracle
+allows the eventual-consistency behavior specified by the extension.
+
+```console
+uv run python scripts/run_m6_tasks_acceptance.py --check
+```
+
+This profile uses wire clients. The pinned TypeScript client rejects parts of the
+modern Tasks API, while Python requires a custom client extension; those API
+probes are documented in the [Tasks research note](docs/research/2026-09-04-tasks-profile.md).
+The profile does not claim a Tasks SDK matrix, subscription coverage, concurrent
+poll ordering, or arbitrary-server `deep` testing.
+
 ## Reports and CI integration
 
 Saved traces are the single JSON source of truth. Reports validate schema v1,
@@ -395,7 +433,7 @@ execution boundaries.
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
-| M6 | In progress (M6.1 complete) | Separate MCP `2026-07-28` stateless client profile; Tasks and deeper generated coverage remain planned |
+| M6 | In progress (M6.2 complete) | Modern SDK baseline plus generated Tasks wire testing; subscriptions and arbitrary-server deep coverage remain planned |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -426,6 +464,8 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M6.1 acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6/acceptance.json)
 - [M6.1 real SDK client traces](https://github.com/lxingy3/mcp-statecheck/tree/main/artifacts/m6/matrix)
 - [M6.1 benchmark pins](https://github.com/lxingy3/mcp-statecheck/blob/main/benchmarks/mcp-modern.toml)
+- [M6.2 Tasks acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-tasks/acceptance.json)
+- [Tasks extension and SDK compatibility notes](https://github.com/lxingy3/mcp-statecheck/blob/main/docs/research/2026-09-04-tasks-profile.md)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License

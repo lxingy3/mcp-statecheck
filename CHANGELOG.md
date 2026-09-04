@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added a generated Tasks extension profile with dynamic server-handle binding,
+  independent state and result checks, and controlled stdio/HTTP peers.
+- Added three Tasks defects with Hypothesis shrinking, version 2 controlled
+  replay recipes, ten-run replay evidence, and JSON/JUnit/SARIF/HTML output.
+- Added conforming Tasks cases for input updates, delayed cancellation,
+  completion, JSON-RPC errors, and tool errors; modern HTTP task routing uses
+  the task ID in `Mcp-Name`.
+- Added cross-platform Tasks acceptance and clean-wheel/sdist replay coverage.
 - Added a separate MCP `2026-07-28` stateless matrix with pinned Python
   `mcp 2.1.1` and TypeScript `@modelcontextprotocol/client 2.0.0` clients over
   stdio and Streamable HTTP.
