@@ -1,0 +1,271 @@
+{
+  "action_profile": "tasks",
+  "coverage": {
+    "observed_transition_count": 34,
+    "unique_transitions": [
+      "created->working",
+      "input_required->working",
+      "working->cancelled",
+      "working->completed",
+      "working->failed",
+      "working->input_required"
+    ]
+  },
+  "generated": {
+    "byte_identical": true,
+    "cells": 6,
+    "runs": 2,
+    "traces": {
+      "stdio/task-input-key-reuse.json": {
+        "failure_kind": "tasks.input_request_key_reused",
+        "fixture_id": "task-input-key-reuse",
+        "minimized_action_count": 4,
+        "replay_matched": 10,
+        "sha256": "bc8093ac76404cece049d352bd3618ca2024a1d51cdbcec290f19f7478b91a96",
+        "signature": "mcp-statecheck:v1:2af43748352d55ae9fe31234529ac9291869743a35cb65420e7cee7cc8b97b2b",
+        "task_count": 1,
+        "transitions": [
+          "created->working",
+          "working->input_required"
+        ],
+        "transport": "stdio"
+      },
+      "stdio/task-result-shape.json": {
+        "failure_kind": "tasks.invalid_result",
+        "fixture_id": "task-result-shape",
+        "minimized_action_count": 2,
+        "replay_matched": 10,
+        "sha256": "af5549f434e2679234bc5a5ec2b8bdb77d39cc2fe2dfdf1224ec2b14a00d884e",
+        "signature": "mcp-statecheck:v1:2dc63322a08051076d6adb9d170912098c9c0b5c3433cd3c90db8685a3f65c75",
+        "task_count": 1,
+        "transitions": [
+          "created->working"
+        ],
+        "transport": "stdio"
+      },
+      "stdio/task-terminal-regression.json": {
+        "failure_kind": "tasks.terminal_state_changed",
+        "fixture_id": "task-terminal-regression",
+        "minimized_action_count": 3,
+        "replay_matched": 10,
+        "sha256": "6d119b66a3e3fc7c72b1d2ec37a6591387ac0ee34b3c42aa19b7dd8c5b9367d7",
+        "signature": "mcp-statecheck:v1:c7d8f33890d557687b178000c624f4e277da1b8560695fb94ebae881e2c7477a",
+        "task_count": 1,
+        "transitions": [
+          "created->working",
+          "working->completed"
+        ],
+        "transport": "stdio"
+      },
+      "streamable-http/task-input-key-reuse.json": {
+        "failure_kind": "tasks.input_request_key_reused",
+        "fixture_id": "task-input-key-reuse",
+        "minimized_action_count": 4,
+        "replay_matched": 10,
+        "sha256": "ad47a09717fc59371c2249a59a8e2efd54d5b4fbdd51897d1b0c9b722b2513fd",
+        "signature": "mcp-statecheck:v1:2af43748352d55ae9fe31234529ac9291869743a35cb65420e7cee7cc8b97b2b",
+        "task_count": 1,
+        "transitions": [
+          "created->working",
+          "working->input_required"
+        ],
+        "transport": "streamable-http"
+      },
+      "streamable-http/task-result-shape.json": {
+        "failure_kind": "tasks.invalid_result",
+        "fixture_id": "task-result-shape",
+        "minimized_action_count": 2,
+        "replay_matched": 10,
+        "sha256": "4092c41256f698b7df474b25a3b2f1c2653e1edbd3138c91860680f8fc91dccc",
+        "signature": "mcp-statecheck:v1:2dc63322a08051076d6adb9d170912098c9c0b5c3433cd3c90db8685a3f65c75",
+        "task_count": 1,
+        "transitions": [
+          "created->working"
+        ],
+        "transport": "streamable-http"
+      },
+      "streamable-http/task-terminal-regression.json": {
+        "failure_kind": "tasks.terminal_state_changed",
+        "fixture_id": "task-terminal-regression",
+        "minimized_action_count": 3,
+        "replay_matched": 10,
+        "sha256": "3977ec648942a07958a7b062665e43b0d470f650e3b60854bd147304513cd88a",
+        "signature": "mcp-statecheck:v1:c7d8f33890d557687b178000c624f4e277da1b8560695fb94ebae881e2c7477a",
+        "task_count": 1,
+        "transitions": [
+          "created->working",
+          "working->completed"
+        ],
+        "transport": "streamable-http"
+      }
+    },
+    "wire_identical_across_transports": true
+  },
+  "healthy": {
+    "cells": 10,
+    "false_positives": 0,
+    "runs": 2,
+    "scenarios": {
+      "stdio/cancel": {
+        "cleanup": {
+          "server_reaped": true
+        },
+        "scenario": "cancel",
+        "task_count": 1,
+        "terminal_status": "cancelled",
+        "transitions": [
+          "created->working",
+          "working->cancelled"
+        ],
+        "transport": "stdio",
+        "wire_sha256": "5be39a81866e67e75aafb813c3c874b3f1a01bd1ef82d52f4c6833b8268d7de1"
+      },
+      "stdio/complete": {
+        "cleanup": {
+          "server_reaped": true
+        },
+        "scenario": "complete",
+        "task_count": 1,
+        "terminal_status": "completed",
+        "transitions": [
+          "created->working",
+          "working->completed"
+        ],
+        "transport": "stdio",
+        "wire_sha256": "14c718e4ef268b132652f0d392963b5931fa47d8733e8d7f6882a28331b1ee09"
+      },
+      "stdio/fail": {
+        "cleanup": {
+          "server_reaped": true
+        },
+        "scenario": "fail",
+        "task_count": 1,
+        "terminal_status": "failed",
+        "transitions": [
+          "created->working",
+          "working->failed"
+        ],
+        "transport": "stdio",
+        "wire_sha256": "ac063885f9c00e7dd78dc33a94590aff75a76742921fa44203063e182977b6c4"
+      },
+      "stdio/input": {
+        "cleanup": {
+          "server_reaped": true
+        },
+        "scenario": "input",
+        "task_count": 1,
+        "terminal_status": "completed",
+        "transitions": [
+          "created->working",
+          "working->input_required",
+          "input_required->working",
+          "working->completed"
+        ],
+        "transport": "stdio",
+        "wire_sha256": "e6a5973482476b2ff49b3f4cea39d1717b41d0eb1d4feadc9a3bd5079524724b"
+      },
+      "stdio/tool_error": {
+        "cleanup": {
+          "server_reaped": true
+        },
+        "scenario": "tool_error",
+        "task_count": 1,
+        "terminal_status": "completed",
+        "transitions": [
+          "created->working",
+          "working->completed"
+        ],
+        "transport": "stdio",
+        "wire_sha256": "bafc4b0b02cb8e51e9c24d8cc0a96f1c3b6302734d41350639171f7f408a5de3"
+      },
+      "streamable-http/cancel": {
+        "cleanup": {
+          "client_closed": true,
+          "listener_closed": true
+        },
+        "scenario": "cancel",
+        "task_count": 1,
+        "terminal_status": "cancelled",
+        "transitions": [
+          "created->working",
+          "working->cancelled"
+        ],
+        "transport": "streamable-http",
+        "wire_sha256": "5be39a81866e67e75aafb813c3c874b3f1a01bd1ef82d52f4c6833b8268d7de1"
+      },
+      "streamable-http/complete": {
+        "cleanup": {
+          "client_closed": true,
+          "listener_closed": true
+        },
+        "scenario": "complete",
+        "task_count": 1,
+        "terminal_status": "completed",
+        "transitions": [
+          "created->working",
+          "working->completed"
+        ],
+        "transport": "streamable-http",
+        "wire_sha256": "14c718e4ef268b132652f0d392963b5931fa47d8733e8d7f6882a28331b1ee09"
+      },
+      "streamable-http/fail": {
+        "cleanup": {
+          "client_closed": true,
+          "listener_closed": true
+        },
+        "scenario": "fail",
+        "task_count": 1,
+        "terminal_status": "failed",
+        "transitions": [
+          "created->working",
+          "working->failed"
+        ],
+        "transport": "streamable-http",
+        "wire_sha256": "ac063885f9c00e7dd78dc33a94590aff75a76742921fa44203063e182977b6c4"
+      },
+      "streamable-http/input": {
+        "cleanup": {
+          "client_closed": true,
+          "listener_closed": true
+        },
+        "scenario": "input",
+        "task_count": 1,
+        "terminal_status": "completed",
+        "transitions": [
+          "created->working",
+          "working->input_required",
+          "input_required->working",
+          "working->completed"
+        ],
+        "transport": "streamable-http",
+        "wire_sha256": "e6a5973482476b2ff49b3f4cea39d1717b41d0eb1d4feadc9a3bd5079524724b"
+      },
+      "streamable-http/tool_error": {
+        "cleanup": {
+          "client_closed": true,
+          "listener_closed": true
+        },
+        "scenario": "tool_error",
+        "task_count": 1,
+        "terminal_status": "completed",
+        "transitions": [
+          "created->working",
+          "working->completed"
+        ],
+        "transport": "streamable-http",
+        "wire_sha256": "bafc4b0b02cb8e51e9c24d8cc0a96f1c3b6302734d41350639171f7f408a5de3"
+      }
+    },
+    "wire_identical_across_transports": true
+  },
+  "milestone": "M6.2",
+  "protocol_version": "2026-07-28",
+  "schema_version": 1,
+  "seed": 20260904,
+  "slice": "generated-tasks-lifecycle",
+  "status": "passed",
+  "transports": [
+    "stdio",
+    "streamable-http"
+  ]
+}

@@ -43,6 +43,10 @@ TIMEOUTS = {
 MATRIX_PACKAGE_ASSETS = {
     "__init__.py",
     "_controlled_peer.py",
+    "_task_peer.py",
+    "task_campaign.py",
+    "task_execution.py",
+    "tasks.py",
     "adapters/__init__.py",
     "adapters/jsonl.py",
     "adapters/python/v1/pyproject.toml",
@@ -757,6 +761,7 @@ def _accept(
         )
         (poison / "__init__.py").write_text(poison_code, encoding="utf-8")
         (poison / "_controlled_peer.py").write_text(poison_code, encoding="utf-8")
+        (poison / "_task_peer.py").write_text(poison_code, encoding="utf-8")
         _, wheel_console = installs["wheel"]
         for fixture_id in REPLAY_FIXTURES:
             artifact = ROOT / "artifacts" / "m2" / f"{fixture_id}.json"
@@ -787,6 +792,46 @@ def _accept(
                 raise AcceptanceError(
                     "installed replay imported an untrusted working-directory peer"
                 )
+
+        task_fixtures = (
+            "task-terminal-regression",
+            "task-input-key-reuse",
+            "task-result-shape",
+        )
+        for package_kind in ("wheel", "sdist"):
+            _, console = installs[package_kind]
+            for task_transport in ("stdio", "streamable-http"):
+                for fixture_id in task_fixtures:
+                    artifact = (
+                        ROOT
+                        / "artifacts"
+                        / "m6-tasks"
+                        / task_transport
+                        / f"{fixture_id}.json"
+                    )
+                    signature = json.loads(artifact.read_text(encoding="utf-8"))[
+                        "failure"
+                    ]["signature"]
+                    replay = _run(
+                        [console, "replay", artifact, "--timeout", "5"],
+                        cwd=replay_consumer,
+                        environment=environment,
+                        timeout=TIMEOUTS["replay"],
+                        expected=(1,),
+                        label=f"clean {package_kind} Tasks replay {task_transport}/{fixture_id}",
+                    )
+                    if (
+                        replay.stdout
+                        or replay.stderr.strip()
+                        != f"Replay reproduced {signature} in 10/10 attempts"
+                    ):
+                        raise AcceptanceError(
+                            "installed Tasks replay printed an unexpected result"
+                        )
+                    if sentinel.exists():
+                        raise AcceptanceError(
+                            "Tasks replay imported an untrusted working-directory peer"
+                        )
 
         reports = work / "reports"
         stdio_artifact = reports / "stdio.json"
@@ -1057,6 +1102,15 @@ def _accept(
                 "wheel_executed": True,
             },
             "pythonpath_cleared": True,
+            "tasks_replay": {
+                "attempts_per_cell": 10,
+                "cells_per_install": 6,
+                "installs": ["wheel", "sdist"],
+                "package_controlled": True,
+                "recipe_version": 2,
+                "status": "passed",
+                "working_directory_isolated": True,
+            },
             "replay": {
                 "attempts_per_fixture": 10,
                 "fixtures": len(REPLAY_FIXTURES),
@@ -1116,7 +1170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             "M4 acceptance passed: clean wheel and sdist installs, real stdio "
             "and Streamable HTTP checks, five installed replays, 16 installed "
-            "legacy matrix cells, four installed modern matrix cells, and four "
+            "legacy matrix cells, four installed modern matrix cells, twelve installed Tasks replays, and four "
             "report formats per transport; "
             f"wrote {args.output}"
         )

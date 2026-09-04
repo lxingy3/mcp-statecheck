@@ -73,6 +73,18 @@
     "session_deleted": true,
     "status": "passed"
   },
+  "tasks_replay": {
+    "attempts_per_cell": 10,
+    "cells_per_install": 6,
+    "installs": [
+      "wheel",
+      "sdist"
+    ],
+    "package_controlled": true,
+    "recipe_version": 2,
+    "status": "passed",
+    "working_directory_isolated": true
+  },
   "timeouts_seconds": {
     "build": 180,
     "check": 30,

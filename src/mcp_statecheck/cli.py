@@ -128,6 +128,29 @@ def _parser() -> argparse.ArgumentParser:
     )
     replay.add_argument("artifact", type=Path)
     replay.add_argument("--timeout", type=_positive_float, default=5.0)
+
+    tasks = subparsers.add_parser(
+        "tasks",
+        help="generate, shrink, and replay a controlled Tasks extension defect",
+    )
+    tasks.add_argument(
+        "--fixture",
+        choices=(
+            "task-terminal-regression",
+            "task-input-key-reuse",
+            "task-result-shape",
+        ),
+        default="task-terminal-regression",
+    )
+    tasks.add_argument(
+        "--transport", choices=("stdio", "streamable-http"), default="stdio"
+    )
+    tasks.add_argument("--seed", type=int, default=20260904)
+    tasks.add_argument("--timeout", type=_positive_float, default=5.0)
+    tasks.add_argument(
+        "--output", type=Path, default=Path("artifacts/tasks-failure.json")
+    )
+    _add_report_outputs(tasks)
     return parser
 
 
@@ -867,7 +890,59 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_matrix(args)
     if args.subcommand == "replay":
         return _run_replay(args)
+    if args.subcommand == "tasks":
+        return _run_tasks(args)
     raise AssertionError(f"unhandled subcommand: {args.subcommand}")
+
+
+def _run_tasks(args: argparse.Namespace) -> int:
+    from .replay import ReplayInfrastructureError, ReplayMismatch
+    from .stateful import NoFailureFound
+    from .task_campaign import build_task_artifact
+
+    try:
+        validate_output_paths(
+            source_path=args.output,
+            junit_path=args.junit,
+            sarif_path=args.sarif,
+            html_path=args.html,
+        )
+        path = build_task_artifact(
+            args.output,
+            fixture_id=args.fixture,
+            transport=args.transport,
+            seed=args.seed,
+            timeout=args.timeout,
+        )
+        artifact = load_artifact(path)
+        write_reports(
+            artifact,
+            source_path=path,
+            junit_path=args.junit,
+            sarif_path=args.sarif,
+            html_path=args.html,
+            environment=os.environ,
+        )
+    except (
+        ValueError,
+        OSError,
+        ReportError,
+        ExecutionProtocolError,
+        StdioError,
+        HTTPTransportError,
+        TimeoutError,
+        ReplayInfrastructureError,
+        ReplayMismatch,
+        NoFailureFound,
+    ) as exc:
+        print(f"mcp-statecheck: {_safe_message(exc)}", file=sys.stderr)
+        return 2
+    print(
+        f"Tasks fixture reproduced: {artifact['failure']['kind']}; "
+        f"{len(artifact['failure']['minimized_reproducer'])} actions; "
+        f"replay 10/10; wrote {path}"
+    )
+    return 1
 
 
 def action_main() -> int:

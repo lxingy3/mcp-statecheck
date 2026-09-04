@@ -53,6 +53,9 @@ jobs:
       - name: Run M6.1 modern stateless acceptance
         timeout-minutes: 5
         run: uv run python scripts/run_m6_modern_acceptance.py --check
+      - name: Run M6.2 Tasks state-machine acceptance
+        timeout-minutes: 8
+        run: uv run python scripts/run_m6_tasks_acceptance.py --check
       - name: Run pinned external server canary
         timeout-minutes: 5
         run: >-
