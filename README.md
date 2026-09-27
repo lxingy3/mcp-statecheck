@@ -70,6 +70,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | M6.1 modern SDK clients | A separate four-cell `2026-07-28` profile covers Python `mcp 2.1.1` and TypeScript client `2.0.0` over stdio and Streamable HTTP |
 | M6.2 Tasks wire profile | Three generated controlled defects across both transports, with independent state checks, minimized traces, 10-run replay, and ten conforming baselines |
 | M6.3 subscription wire profile | Three controlled delivery defects across both transports, with per-subscription acknowledgement and filter checks, minimized traces, 10-run replay, and eight conforming baselines |
+| M6.4 subscription lifecycle | Controlled stdio cancellation, HTTP SSE closure, abrupt disconnect and re-subscription on both transports, plus a ten-run late-delivery fault |
 
 ```mermaid
 flowchart LR
@@ -299,6 +300,22 @@ both transports. This wire profile does not claim SDK-native subscriptions,
 cancellation, arbitrary servers, or a general `deep` profile. See the
 [subscription profile notes](docs/research/2026-09-27-subscriptions-profile.md).
 
+The separate M6.4 lifecycle gate exercises cancellation and recovery on open
+subscriptions. It checks that a stdio cancellation targets the original
+request, HTTP cancellation closes the SSE connection, and an abrupt stream end
+without a completion response is classified separately from a graceful close.
+Both transports then re-subscribe with a new request ID. A controlled stdio
+fault delivers after cancellation and reproduces ten times.
+
+```console
+uv run python -m mcp_statecheck.subscription_lifecycle --check
+```
+
+The [M6.4 acceptance report](artifacts/m6-subscription-lifecycle/acceptance.json)
+contains five wire cells from two byte-identical runs. This gate uses
+package-controlled peers; it does not claim SDK-native or arbitrary-server
+subscription lifecycle conformance.
+
 ## Reports and CI integration
 
 Saved traces are the single JSON source of truth. Reports validate schema v1,
@@ -457,7 +474,7 @@ execution boundaries.
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
-| M6 | In progress (M6.3 complete) | Modern SDK baseline, generated Tasks, and subscription delivery wire testing; cancellation and arbitrary-server deep coverage remain planned |
+| M6 | In progress (M6.4 complete) | Modern SDK baseline, generated Tasks, subscription delivery, and controlled cancellation/recovery; SDK-native subscriptions and arbitrary-server deep coverage remain planned |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -492,6 +509,7 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [Tasks extension and SDK compatibility notes](https://github.com/lxingy3/mcp-statecheck/blob/main/docs/research/2026-09-04-tasks-profile.md)
 - [M6.3 subscription acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-subscriptions/acceptance.json)
 - [Subscription profile notes](https://github.com/lxingy3/mcp-statecheck/blob/main/docs/research/2026-09-27-subscriptions-profile.md)
+- [M6.4 subscription lifecycle acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-subscription-lifecycle/acceptance.json)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License

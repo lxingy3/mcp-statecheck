@@ -17,6 +17,9 @@ MODES = (
     "notification-before-ack",
     "wrong-subscription-id",
     "unsolicited-notification",
+    "held-cancel",
+    "late-after-cancel",
+    "drop-first",
 )
 SUBSCRIPTION_ID = "io.modelcontextprotocol/subscriptionId"
 
@@ -110,6 +113,8 @@ def respond(message: object, mode: str) -> list[dict[str, Any]]:
         "id": request_id,
         "result": {"resultType": "complete", "_meta": {SUBSCRIPTION_ID: request_id}},
     }
+    if mode in {"held-cancel", "late-after-cancel", "drop-first"} and request_id == 1:
+        return [ack, *delivered]
     return [ack, *delivered, finished]
 
 
@@ -122,6 +127,9 @@ class ControlledSubscriptionHTTPPeer(
         if mode not in MODES:
             raise ValueError("unknown controlled subscription mode")
         self.closed = False
+        self.cancel_seen = threading.Event()
+        self._stop = threading.Event()
+        owner = self
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.0"
@@ -165,6 +173,19 @@ class ControlledSubscriptionHTTPPeer(
                 else:
                     body = json.dumps(messages[0], separators=(",", ":")).encode()
                     content_type = "application/json"
+                if mode == "held-cancel" and message.get("id") == 1:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.end_headers()
+                    try:
+                        self.wfile.write(body)
+                        self.wfile.flush()
+                        while not owner._stop.wait(0.05):
+                            self.wfile.write(b": heartbeat\n\n")
+                            self.wfile.flush()
+                    except OSError:
+                        owner.cancel_seen.set()
+                    return
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(body)))
@@ -191,6 +212,7 @@ class ControlledSubscriptionHTTPPeer(
         return self
 
     def __exit__(self, *_: object) -> None:
+        self._stop.set()
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=5)
@@ -203,9 +225,38 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=MODES, default="conforming")
     mode = parser.parse_args().mode
+    cancelled = False
     for line in sys.stdin:
-        for message in respond(json.loads(line), mode):
+        request = json.loads(line)
+        if not isinstance(request, dict):
+            messages = respond(request, mode)
+        elif mode in {"held-cancel", "late-after-cancel"}:
+            if request.get("method") == "notifications/cancelled":
+                params = request.get("params")
+                cancelled = isinstance(params, dict) and params.get("requestId") == 1
+                if cancelled and mode == "late-after-cancel":
+                    late = _notice("notifications/tools/list_changed", 1)
+                    print(json.dumps(late, separators=(",", ":")), flush=True)
+                continue
+            if (
+                request.get("method") == "subscriptions/listen"
+                and request.get("id") == 2
+                and not cancelled
+            ):
+                messages = [_error(2, "first subscription was not cancelled")]
+            else:
+                messages = respond(request, mode)
+        else:
+            messages = respond(request, mode)
+        for message in messages:
             print(json.dumps(message, separators=(",", ":")), flush=True)
+        if (
+            mode == "drop-first"
+            and isinstance(request, dict)
+            and request.get("method") == "subscriptions/listen"
+            and request.get("id") == 1
+        ):
+            break
     return 0
 
 

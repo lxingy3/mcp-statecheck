@@ -13,6 +13,7 @@ adds the stateless `2026-07-28` revision through a separate action profile.
 M6.2 adds a separate Tasks extension wire profile against controlled peers;
 M6.3 adds controlled subscription delivery checks. SDK-native Tasks and
 subscriptions, and other agent protocols remain outside scope.
+M6.4 adds a controlled cancellation and reconnect lifecycle gate.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -339,6 +340,19 @@ public replay path repeat every failure ten times against fresh peers.
 two byte-identical campaigns, plus eight conforming baseline checks. The wire
 profile does not cover SDK-native subscription APIs, cancellation, unbounded
 streams, or arbitrary servers.
+
+## M6.4 subscription lifecycle gate
+
+The M6.3 oracle can validate an acknowledged, still-open prefix without
+requiring a graceful completion. The lifecycle gate then sends
+`notifications/cancelled` for the original stdio request or closes an open HTTP
+SSE response. Both paths re-subscribe using a new ID. An independent check
+detects a controlled stdio peer that delivers under the cancelled ID. Separate
+stdio and HTTP peers end their first stream without a completion response;
+the gate records that as an abrupt disconnect and verifies a fresh
+subscription. The saved acceptance report contains five cells, two identical
+runs, and ten identical replays of the late-delivery fault. It does not cover
+real SDK subscription APIs or arbitrary servers.
 
 ## v0.1 release gate
 

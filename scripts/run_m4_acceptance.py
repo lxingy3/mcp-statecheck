@@ -46,6 +46,7 @@ MATRIX_PACKAGE_ASSETS = {
     "_task_peer.py",
     "_subscription_peer.py",
     "subscription_campaign.py",
+    "subscription_lifecycle.py",
     "task_campaign.py",
     "task_execution.py",
     "tasks.py",
@@ -817,7 +818,7 @@ def _accept(
             ),
         )
         for package_kind in ("wheel", "sdist"):
-            _, console = installs[package_kind]
+            installed_python, console = installs[package_kind]
             for label, directory, fixtures in controlled_profiles:
                 for transport in ("stdio", "streamable-http"):
                     for fixture_id in fixtures:
@@ -851,6 +852,35 @@ def _accept(
                             raise AcceptanceError(
                                 f"{label} replay imported an untrusted working-directory peer"
                             )
+            lifecycle_output = work / f"subscription-lifecycle-{package_kind}.json"
+            _run(
+                [
+                    installed_python,
+                    "-I",
+                    "-m",
+                    "mcp_statecheck.subscription_lifecycle",
+                    "--output",
+                    lifecycle_output,
+                ],
+                cwd=replay_consumer,
+                environment=environment,
+                timeout=TIMEOUTS["replay"],
+                expected=(0,),
+                label=f"clean {package_kind} subscription lifecycle acceptance",
+            )
+            if (
+                lifecycle_output.read_bytes()
+                != (
+                    ROOT / "artifacts" / "m6-subscription-lifecycle" / "acceptance.json"
+                ).read_bytes()
+            ):
+                raise AcceptanceError(
+                    f"installed {package_kind} subscription lifecycle evidence changed"
+                )
+            if sentinel.exists():
+                raise AcceptanceError(
+                    "subscription lifecycle imported an untrusted working-directory peer"
+                )
 
         reports = work / "reports"
         stdio_artifact = reports / "stdio.json"
@@ -1139,6 +1169,14 @@ def _accept(
                 "status": "passed",
                 "working_directory_isolated": True,
             },
+            "subscription_lifecycle": {
+                "cells": 5,
+                "identical_runs": 2,
+                "fault_replays": 10,
+                "installs": ["wheel", "sdist"],
+                "status": "passed",
+                "working_directory_isolated": True,
+            },
             "replay": {
                 "attempts_per_fixture": 10,
                 "fixtures": len(REPLAY_FIXTURES),
@@ -1199,7 +1237,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "M4 acceptance passed: clean wheel and sdist installs, real stdio "
             "and Streamable HTTP checks, five installed replays, 16 installed "
             "legacy matrix cells, four installed modern matrix cells, twelve installed Tasks and twelve "
-            "subscription replays, and four "
+            "subscription replays, two subscription lifecycle installations, and four "
             "report formats per transport; "
             f"wrote {args.output}"
         )

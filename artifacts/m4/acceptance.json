@@ -73,6 +73,17 @@
     "session_deleted": true,
     "status": "passed"
   },
+  "subscription_lifecycle": {
+    "cells": 5,
+    "fault_replays": 10,
+    "identical_runs": 2,
+    "installs": [
+      "wheel",
+      "sdist"
+    ],
+    "status": "passed",
+    "working_directory_isolated": true
+  },
   "subscriptions_replay": {
     "attempts_per_cell": 10,
     "cells_per_install": 6,

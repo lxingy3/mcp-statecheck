@@ -129,7 +129,10 @@ def _failure(actions: Sequence[Action], kind: str, method: str) -> Failure:
 
 
 def evaluate(
-    actions: Sequence[Action], events: Sequence[Mapping[str, object]]
+    actions: Sequence[Action],
+    events: Sequence[Mapping[str, object]],
+    *,
+    require_close: bool = True,
 ) -> Failure | None:
     """Check observed wire messages without consulting peer mode or internals."""
     subscriptions = {
@@ -217,7 +220,9 @@ def evaluate(
                     actions, "subscriptions.invalid_close", "subscriptions/listen"
                 )
             closed.add(identity)
-    if set(acknowledged) != set(subscriptions) or closed != set(subscriptions):
+    if set(acknowledged) != set(subscriptions) or (
+        require_close and closed != set(subscriptions)
+    ):
         return _failure(actions, "subscriptions.incomplete", "subscriptions/listen")
     return None
 

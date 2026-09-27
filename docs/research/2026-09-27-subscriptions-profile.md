@@ -26,3 +26,24 @@ cells. The saved recipe names only an allowlisted peer fixture, so an artifact
 cannot specify a command or URL. This slice does not exercise SDK subscription
 APIs, cancellation, an unbounded stream, or a server supplied by a user. Those
 need separate evidence before claiming broader subscription conformance.
+
+## M6.4 cancellation and reconnect follow-up
+
+The [stdio transport rule](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/stdio.mdx)
+uses `notifications/cancelled` with the original request ID. The
+[Streamable HTTP rule](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/streamable-http.mdx)
+treats closing the request's SSE stream as cancellation. In both cases, the
+server must not send further messages for the cancelled request. The
+subscription specification also distinguishes a graceful completion response
+from an abrupt transport close; clients may reconnect, and stdio clients must
+send a new `subscriptions/listen` request after reconnecting.
+
+M6.4 checks these paths against package-controlled peers. The stdio client
+sends cancellation for request 1, then opens request 2 on the same process. A
+mutated peer emits a notification under the cancelled ID after processing the
+cancellation; the independent lifecycle check identifies it and replays the
+same failure ten times. On HTTP, the client closes an open SSE request, the
+peer observes that socket closure, and a new request succeeds. Separate peers
+drop the first stream without completion, then accept a fresh subscription.
+The gate records five cells from two byte-identical runs. It does not claim
+SDK-native handling, arbitrary-target recovery, or all cancellation races.
