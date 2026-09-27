@@ -59,6 +59,9 @@ jobs:
       - name: Run M6.3 subscription delivery acceptance
         timeout-minutes: 8
         run: uv run python -m mcp_statecheck.subscription_campaign --check
+      - name: Run M6.4 subscription lifecycle acceptance
+        timeout-minutes: 5
+        run: uv run python -m mcp_statecheck.subscription_lifecycle --check
       - name: Run pinned external server canary
         timeout-minutes: 5
         run: >-

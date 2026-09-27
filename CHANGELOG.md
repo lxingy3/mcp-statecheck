@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added controlled subscription cancellation and abrupt-disconnect recovery
+  checks over stdio and Streamable HTTP, including a repeatable late-delivery
+  fault and clean wheel/sdist acceptance.
 - Added a controlled MCP `2026-07-28` subscription delivery profile with
   per-request acknowledgement, filter, and close checks over stdio and HTTP.
 - Added three generated subscription defects, deterministic ten-run replay,

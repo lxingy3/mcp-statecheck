@@ -1,0 +1,376 @@
+{
+  "cells": {
+    "stdio/cancel": {
+      "after_cancel": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "response",
+          "mcp_request_id": 2,
+          "outcome": "success",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "resultType": "complete"
+          },
+          "target_action_id": "request-2"
+        }
+      ],
+      "before_cancel": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            }
+          },
+          "target_action_id": null
+        }
+      ],
+      "cleanup": {
+        "server_reaped": true
+      },
+      "failure_kind": null,
+      "scenario": "held-cancel",
+      "signature": null,
+      "transport": "stdio"
+    },
+    "stdio/drop-reconnect": {
+      "after_reconnect": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "response",
+          "mcp_request_id": 2,
+          "outcome": "success",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "resultType": "complete"
+          },
+          "target_action_id": "request-2"
+        }
+      ],
+      "before_drop": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            }
+          },
+          "target_action_id": null
+        }
+      ],
+      "classification": "abrupt-disconnect",
+      "cleanup": {
+        "first_server_reaped": true,
+        "replacement_server_reaped": true
+      },
+      "scenario": "drop-first",
+      "transport": "stdio"
+    },
+    "stdio/late-after-cancel": {
+      "after_cancel": [
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "response",
+          "mcp_request_id": 2,
+          "outcome": "success",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "resultType": "complete"
+          },
+          "target_action_id": "request-2"
+        }
+      ],
+      "before_cancel": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            }
+          },
+          "target_action_id": null
+        }
+      ],
+      "cleanup": {
+        "server_reaped": true
+      },
+      "failure_kind": "subscriptions.notification_after_cancel",
+      "replays": 10,
+      "scenario": "late-after-cancel",
+      "signature": "mcp-statecheck:v1:68170d2e478dbe49aacc8d3e663430a40fee98d3b5bdbc62fa489b041af4f8bb",
+      "transport": "stdio"
+    },
+    "streamable-http/cancel": {
+      "after_cancel": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "response",
+          "mcp_request_id": 2,
+          "outcome": "success",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "resultType": "complete"
+          },
+          "target_action_id": "request-2"
+        }
+      ],
+      "before_cancel": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            }
+          },
+          "target_action_id": null
+        }
+      ],
+      "cleanup": {
+        "client_closed": true,
+        "listener_closed": true,
+        "sse_closed": true
+      },
+      "scenario": "held-cancel",
+      "transport": "streamable-http"
+    },
+    "streamable-http/drop-reconnect": {
+      "after_reconnect": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "response",
+          "mcp_request_id": 2,
+          "outcome": "success",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 2
+            },
+            "resultType": "complete"
+          },
+          "target_action_id": "request-2"
+        }
+      ],
+      "before_drop": [
+        {
+          "kind": "notification",
+          "method": "notifications/subscriptions/acknowledged",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            },
+            "notifications": {
+              "toolsListChanged": true
+            }
+          },
+          "target_action_id": null
+        },
+        {
+          "kind": "notification",
+          "method": "notifications/tools/list_changed",
+          "payload": {
+            "_meta": {
+              "io.modelcontextprotocol/subscriptionId": 1
+            }
+          },
+          "target_action_id": null
+        }
+      ],
+      "classification": "abrupt-disconnect",
+      "cleanup": {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      "scenario": "drop-first",
+      "transport": "streamable-http"
+    }
+  },
+  "milestone": "M6.4",
+  "protocol_version": "2026-07-28",
+  "runs": 2,
+  "schema_version": 1,
+  "slice": "controlled-subscription-lifecycle",
+  "status": "passed"
+}
