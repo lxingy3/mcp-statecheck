@@ -1,0 +1,169 @@
+{
+  "adapter": "subscriptions-wire",
+  "canonical_actions": [
+    {
+      "action_id": "request-1",
+      "capabilities": {},
+      "kind": "request",
+      "mcp_request_id": 1,
+      "method": "subscriptions/listen",
+      "payload": {
+        "notifications": {
+          "toolsListChanged": true
+        }
+      },
+      "protocol_version": "2026-07-28",
+      "resume_token": null,
+      "sequence": 1,
+      "stream_id": null,
+      "target_action_id": null
+    }
+  ],
+  "cleanup": {
+    "server_reaped": true
+  },
+  "failure": {
+    "evidence": {
+      "method": "notifications/tools/list_changed",
+      "subject": "server"
+    },
+    "kind": "subscriptions.notification_before_ack",
+    "minimized_reproducer": [
+      {
+        "action_id": "request-1",
+        "capabilities": {},
+        "kind": "request",
+        "mcp_request_id": 1,
+        "method": "subscriptions/listen",
+        "payload": {
+          "notifications": {
+            "toolsListChanged": true
+          }
+        },
+        "protocol_version": "2026-07-28",
+        "resume_token": null,
+        "stream_id": null,
+        "target_action_id": null
+      }
+    ],
+    "signature": "mcp-statecheck:v1:54cf00f3e8e801866dbfc4ea3e32639b05a065c34e57c9392b3ee9663283b5b0",
+    "spec_reference": "https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions",
+    "trigger_action_id": "request-1"
+  },
+  "fixture_id": "notification-before-ack",
+  "generation": {
+    "engine": "Hypothesis RuleBasedStateMachine",
+    "profile": "subscriptions",
+    "settings": {
+      "database": null,
+      "deadline": null,
+      "max_examples": 25,
+      "phases": [
+        "generate",
+        "shrink"
+      ],
+      "report_multiple_bugs": false,
+      "stateful_step_count": 8
+    },
+    "version": "6.156.6"
+  },
+  "normalized_events": [
+    {
+      "kind": "notification",
+      "method": "notifications/tools/list_changed",
+      "payload": {
+        "_meta": {
+          "io.modelcontextprotocol/subscriptionId": 1
+        }
+      },
+      "sequence": 2,
+      "target_action_id": null
+    },
+    {
+      "kind": "notification",
+      "method": "notifications/subscriptions/acknowledged",
+      "payload": {
+        "_meta": {
+          "io.modelcontextprotocol/subscriptionId": 1
+        },
+        "notifications": {
+          "toolsListChanged": true
+        }
+      },
+      "sequence": 3,
+      "target_action_id": null
+    },
+    {
+      "kind": "response",
+      "mcp_request_id": 1,
+      "outcome": "success",
+      "payload": {
+        "_meta": {
+          "io.modelcontextprotocol/subscriptionId": 1
+        },
+        "resultType": "complete"
+      },
+      "sequence": 4,
+      "target_action_id": "request-1"
+    }
+  ],
+  "protocol_version": "2026-07-28",
+  "replay": {
+    "attempts": 10,
+    "cleanups": [
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      },
+      {
+        "server_reaped": true
+      }
+    ],
+    "matched": 10,
+    "returncodes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "signature": "mcp-statecheck:v1:54cf00f3e8e801866dbfc4ea3e32639b05a065c34e57c9392b3ee9663283b5b0"
+  },
+  "schema_version": 1,
+  "sdk_version": "none",
+  "seed": 20260927,
+  "target_recipe": {
+    "fixture_id": "notification-before-ack",
+    "kind": "controlled-subscriptions",
+    "version": 2
+  },
+  "transport": "stdio"
+}

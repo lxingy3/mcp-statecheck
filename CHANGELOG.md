@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a controlled MCP `2026-07-28` subscription delivery profile with
+  per-request acknowledgement, filter, and close checks over stdio and HTTP.
+- Added three generated subscription defects, deterministic ten-run replay,
+  eight conforming baselines, and cross-platform checked acceptance evidence.
 - Added a generated Tasks extension profile with dynamic server-handle binding,
   independent state and result checks, and controlled stdio/HTTP peers.
 - Added three Tasks defects with Hypothesis shrinking, version 2 controlled

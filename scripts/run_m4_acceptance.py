@@ -44,6 +44,8 @@ MATRIX_PACKAGE_ASSETS = {
     "__init__.py",
     "_controlled_peer.py",
     "_task_peer.py",
+    "_subscription_peer.py",
+    "subscription_campaign.py",
     "task_campaign.py",
     "task_execution.py",
     "tasks.py",
@@ -762,6 +764,7 @@ def _accept(
         (poison / "__init__.py").write_text(poison_code, encoding="utf-8")
         (poison / "_controlled_peer.py").write_text(poison_code, encoding="utf-8")
         (poison / "_task_peer.py").write_text(poison_code, encoding="utf-8")
+        (poison / "_subscription_peer.py").write_text(poison_code, encoding="utf-8")
         _, wheel_console = installs["wheel"]
         for fixture_id in REPLAY_FIXTURES:
             artifact = ROOT / "artifacts" / "m2" / f"{fixture_id}.json"
@@ -793,45 +796,61 @@ def _accept(
                     "installed replay imported an untrusted working-directory peer"
                 )
 
-        task_fixtures = (
-            "task-terminal-regression",
-            "task-input-key-reuse",
-            "task-result-shape",
+        controlled_profiles = (
+            (
+                "Tasks",
+                "m6-tasks",
+                (
+                    "task-terminal-regression",
+                    "task-input-key-reuse",
+                    "task-result-shape",
+                ),
+            ),
+            (
+                "Subscriptions",
+                "m6-subscriptions",
+                (
+                    "notification-before-ack",
+                    "wrong-subscription-id",
+                    "unsolicited-notification",
+                ),
+            ),
         )
         for package_kind in ("wheel", "sdist"):
             _, console = installs[package_kind]
-            for task_transport in ("stdio", "streamable-http"):
-                for fixture_id in task_fixtures:
-                    artifact = (
-                        ROOT
-                        / "artifacts"
-                        / "m6-tasks"
-                        / task_transport
-                        / f"{fixture_id}.json"
-                    )
-                    signature = json.loads(artifact.read_text(encoding="utf-8"))[
-                        "failure"
-                    ]["signature"]
-                    replay = _run(
-                        [console, "replay", artifact, "--timeout", "5"],
-                        cwd=replay_consumer,
-                        environment=environment,
-                        timeout=TIMEOUTS["replay"],
-                        expected=(1,),
-                        label=f"clean {package_kind} Tasks replay {task_transport}/{fixture_id}",
-                    )
-                    if (
-                        replay.stdout
-                        or replay.stderr.strip()
-                        != f"Replay reproduced {signature} in 10/10 attempts"
-                    ):
-                        raise AcceptanceError(
-                            "installed Tasks replay printed an unexpected result"
+            for label, directory, fixtures in controlled_profiles:
+                for transport in ("stdio", "streamable-http"):
+                    for fixture_id in fixtures:
+                        artifact = (
+                            ROOT
+                            / "artifacts"
+                            / directory
+                            / transport
+                            / f"{fixture_id}.json"
                         )
-                    if sentinel.exists():
-                        raise AcceptanceError(
-                            "Tasks replay imported an untrusted working-directory peer"
+                        signature = json.loads(artifact.read_text(encoding="utf-8"))[
+                            "failure"
+                        ]["signature"]
+                        replay = _run(
+                            [console, "replay", artifact, "--timeout", "5"],
+                            cwd=replay_consumer,
+                            environment=environment,
+                            timeout=TIMEOUTS["replay"],
+                            expected=(1,),
+                            label=f"clean {package_kind} {label} replay {transport}/{fixture_id}",
                         )
+                        if (
+                            replay.stdout
+                            or replay.stderr.strip()
+                            != f"Replay reproduced {signature} in 10/10 attempts"
+                        ):
+                            raise AcceptanceError(
+                                f"installed {label} replay printed an unexpected result"
+                            )
+                        if sentinel.exists():
+                            raise AcceptanceError(
+                                f"{label} replay imported an untrusted working-directory peer"
+                            )
 
         reports = work / "reports"
         stdio_artifact = reports / "stdio.json"
@@ -1111,6 +1130,15 @@ def _accept(
                 "status": "passed",
                 "working_directory_isolated": True,
             },
+            "subscriptions_replay": {
+                "attempts_per_cell": 10,
+                "cells_per_install": 6,
+                "installs": ["wheel", "sdist"],
+                "package_controlled": True,
+                "recipe_version": 2,
+                "status": "passed",
+                "working_directory_isolated": True,
+            },
             "replay": {
                 "attempts_per_fixture": 10,
                 "fixtures": len(REPLAY_FIXTURES),
@@ -1170,7 +1198,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             "M4 acceptance passed: clean wheel and sdist installs, real stdio "
             "and Streamable HTTP checks, five installed replays, 16 installed "
-            "legacy matrix cells, four installed modern matrix cells, twelve installed Tasks replays, and four "
+            "legacy matrix cells, four installed modern matrix cells, twelve installed Tasks and twelve "
+            "subscription replays, and four "
             "report formats per transport; "
             f"wrote {args.output}"
         )
