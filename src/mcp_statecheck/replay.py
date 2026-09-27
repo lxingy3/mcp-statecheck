@@ -140,6 +140,10 @@ async def replay_artifact(
         from .task_campaign import replay_task_artifact
 
         return await replay_task_artifact(artifact, attempts, timeout)
+    if isinstance(recipe, dict) and recipe.get("kind") == "controlled-subscriptions":
+        from .subscription_campaign import replay_subscription_artifact
+
+        return await replay_subscription_artifact(artifact, attempts, timeout)
     fixture = _target_fixture(artifact)
     actions, signature = _failure(artifact)
     if fixture.transport == "streamable-http":

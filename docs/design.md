@@ -11,7 +11,8 @@ Streamable HTTP, including initialization, capability negotiation, concurrent
 requests, cancellation, sessions, SSE resumption, and transport errors. M6.1
 adds the stateless `2026-07-28` revision through a separate action profile.
 M6.2 adds a separate Tasks extension wire profile against controlled peers;
-SDK-native Tasks coverage and other agent protocols remain outside scope.
+M6.3 adds controlled subscription delivery checks. SDK-native Tasks and
+subscriptions, and other agent protocols remain outside scope.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -321,6 +322,23 @@ The oracle validates task-specific state and envelope fields, not every nested
 tool-content or elicitation schema. It does not claim coverage of subscriptions,
 concurrent observations, arbitrary targets, or every Tasks implementation. The
 research note records the currently pinned SDK API limits.
+
+## M6.3 subscription delivery profile
+
+Modern `subscriptions/listen` requests use canonical `REQUEST` actions and the
+existing stdio and Streamable HTTP executors. The controlled peer sends a
+finite sequence of acknowledgements, filtered notifications, and a graceful
+completion. The independent oracle checks each subscription ID separately:
+acknowledgement precedes its deliveries, delivered methods and resource URIs
+fit the acknowledged filter, and the closing response matches the request ID.
+
+Three fault modes alter delivery order, subscription ID, or filter compliance.
+Hypothesis shrinks each to one request. The version 2 allowlisted recipe and
+public replay path repeat every failure ten times against fresh peers.
+`artifacts/m6-subscriptions` contains six traces and one acceptance report from
+two byte-identical campaigns, plus eight conforming baseline checks. The wire
+profile does not cover SDK-native subscription APIs, cancellation, unbounded
+streams, or arbitrary servers.
 
 ## v0.1 release gate
 

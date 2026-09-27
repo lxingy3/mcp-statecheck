@@ -69,6 +69,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | M5 application servers | Release-bound, allowlisted recipes drive pinned Filesystem and Git reference servers through verified state transitions and reproduce one normalized trace across ten fresh processes |
 | M6.1 modern SDK clients | A separate four-cell `2026-07-28` profile covers Python `mcp 2.1.1` and TypeScript client `2.0.0` over stdio and Streamable HTTP |
 | M6.2 Tasks wire profile | Three generated controlled defects across both transports, with independent state checks, minimized traces, 10-run replay, and ten conforming baselines |
+| M6.3 subscription wire profile | Three controlled delivery defects across both transports, with per-subscription acknowledgement and filter checks, minimized traces, 10-run replay, and eight conforming baselines |
 
 ```mermaid
 flowchart LR
@@ -165,8 +166,8 @@ captures the actual cursor, session, and protocol headers. Each HTTP candidate
 and replay uses a fresh localhost peer, verifies client and listener cleanup,
 and verifies session deletion when a session was established.
 
-The installed replay command accepts only checked-in artifacts with the
-versioned `controlled-fixture` target recipe:
+The installed replay command accepts package-controlled target recipes. This
+M2 example uses the versioned `controlled-fixture` recipe:
 
 ```console
 $ mcp-statecheck replay artifacts/m2/request-before-initialized.json
@@ -273,8 +274,30 @@ uv run python scripts/run_m6_tasks_acceptance.py --check
 This profile uses wire clients. The pinned TypeScript client rejects parts of the
 modern Tasks API, while Python requires a custom client extension; those API
 probes are documented in the [Tasks research note](docs/research/2026-09-04-tasks-profile.md).
-The profile does not claim a Tasks SDK matrix, subscription coverage, concurrent
+The Tasks profile does not claim a Tasks SDK matrix, concurrent
 poll ordering, or arbitrary-server `deep` testing.
+
+## Subscription delivery profile
+
+The `subscriptions` command checks MCP `2026-07-28` subscription delivery on
+controlled stdio or Streamable HTTP peers. It validates the acknowledgement as
+the first notification for each subscription ID, permits only notifications
+within the acknowledged filter, and checks the graceful close response.
+
+```console
+$ uv run mcp-statecheck subscriptions --fixture wrong-subscription-id --transport streamable-http --output artifacts/subscriptions-failure.json
+Subscriptions fixture reproduced: subscriptions.unknown_id; 1 action; replay 10/10; wrote artifacts/subscriptions-failure.json
+$ uv run python -m mcp_statecheck.subscription_campaign --check
+M6.3 subscriptions passed: 6 generated and 8 healthy cells across 2 byte-identical runs
+```
+
+The three fixtures deliver before acknowledgement, use an unknown subscription
+ID, or send an unrequested notification. Each shrinks to one request and
+replays ten times from a saved, allowlisted recipe. Conforming cases cover
+tools, resource updates, an empty filter, and two independent subscriptions on
+both transports. This wire profile does not claim SDK-native subscriptions,
+cancellation, arbitrary servers, or a general `deep` profile. See the
+[subscription profile notes](docs/research/2026-09-27-subscriptions-profile.md).
 
 ## Reports and CI integration
 
@@ -434,7 +457,7 @@ execution boundaries.
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
-| M6 | In progress (M6.2 complete) | Modern SDK baseline plus generated Tasks wire testing; subscriptions and arbitrary-server deep coverage remain planned |
+| M6 | In progress (M6.3 complete) | Modern SDK baseline, generated Tasks, and subscription delivery wire testing; cancellation and arbitrary-server deep coverage remain planned |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -467,6 +490,8 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M6.1 benchmark pins](https://github.com/lxingy3/mcp-statecheck/blob/main/benchmarks/mcp-modern.toml)
 - [M6.2 Tasks acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-tasks/acceptance.json)
 - [Tasks extension and SDK compatibility notes](https://github.com/lxingy3/mcp-statecheck/blob/main/docs/research/2026-09-04-tasks-profile.md)
+- [M6.3 subscription acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-subscriptions/acceptance.json)
+- [Subscription profile notes](https://github.com/lxingy3/mcp-statecheck/blob/main/docs/research/2026-09-27-subscriptions-profile.md)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License

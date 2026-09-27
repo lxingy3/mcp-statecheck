@@ -1,0 +1,135 @@
+{
+  "generated_cells": 6,
+  "healthy": {
+    "stdio/none": {
+      "cleanup": {
+        "server_reaped": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged"
+      ]
+    },
+    "stdio/resource": {
+      "cleanup": {
+        "server_reaped": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged",
+        "notifications/resources/updated"
+      ]
+    },
+    "stdio/tools": {
+      "cleanup": {
+        "server_reaped": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged",
+        "notifications/tools/list_changed"
+      ]
+    },
+    "stdio/two": {
+      "cleanup": {
+        "server_reaped": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged",
+        "notifications/tools/list_changed",
+        "notifications/subscriptions/acknowledged",
+        "notifications/resources/updated"
+      ]
+    },
+    "streamable-http/none": {
+      "cleanup": {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged"
+      ]
+    },
+    "streamable-http/resource": {
+      "cleanup": {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged",
+        "notifications/resources/updated"
+      ]
+    },
+    "streamable-http/tools": {
+      "cleanup": {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged",
+        "notifications/tools/list_changed"
+      ]
+    },
+    "streamable-http/two": {
+      "cleanup": {
+        "client_closed": true,
+        "listener_closed": true
+      },
+      "notification_methods": [
+        "notifications/subscriptions/acknowledged",
+        "notifications/tools/list_changed",
+        "notifications/subscriptions/acknowledged",
+        "notifications/resources/updated"
+      ]
+    }
+  },
+  "healthy_cells": 8,
+  "milestone": "M6.3",
+  "protocol_version": "2026-07-28",
+  "runs": 2,
+  "schema_version": 1,
+  "seed": 20260927,
+  "slice": "controlled-subscription-delivery",
+  "status": "passed",
+  "traces": {
+    "stdio/notification-before-ack.json": {
+      "failure_kind": "subscriptions.notification_before_ack",
+      "minimized_actions": 1,
+      "replays": 10,
+      "sha256": "5279b58e761df4872b744af9fb97073b70028f4e9d2808d5f0d57871bf0bf49a",
+      "signature": "mcp-statecheck:v1:54cf00f3e8e801866dbfc4ea3e32639b05a065c34e57c9392b3ee9663283b5b0"
+    },
+    "stdio/unsolicited-notification.json": {
+      "failure_kind": "subscriptions.unrequested_notification",
+      "minimized_actions": 1,
+      "replays": 10,
+      "sha256": "5d159c48612c50235bac9658ea53115926b59b36d3e0ce525e04f3d72f5a28a9",
+      "signature": "mcp-statecheck:v1:71ea4c687fab00938f50b7b2e51db98fcd070a3142f3d4e7ab5314f4b533c795"
+    },
+    "stdio/wrong-subscription-id.json": {
+      "failure_kind": "subscriptions.unknown_id",
+      "minimized_actions": 1,
+      "replays": 10,
+      "sha256": "b32ee9d39c022be713f039a89ea02f240c6e4e689291661fb56a6ff9e48f6906",
+      "signature": "mcp-statecheck:v1:9037a79351d8f77af6039f96f31686d4e212fa6d790c88921088bf334fcc8bd6"
+    },
+    "streamable-http/notification-before-ack.json": {
+      "failure_kind": "subscriptions.notification_before_ack",
+      "minimized_actions": 1,
+      "replays": 10,
+      "sha256": "7163575cd5856419a99758947b4e3d1e7c9b516bcd981470847156fea28adb5a",
+      "signature": "mcp-statecheck:v1:54cf00f3e8e801866dbfc4ea3e32639b05a065c34e57c9392b3ee9663283b5b0"
+    },
+    "streamable-http/unsolicited-notification.json": {
+      "failure_kind": "subscriptions.unrequested_notification",
+      "minimized_actions": 1,
+      "replays": 10,
+      "sha256": "5cf7904b28bd400eb2bd9e9d2782f328b4c43a96808e0f4c32965e34e2b8437e",
+      "signature": "mcp-statecheck:v1:71ea4c687fab00938f50b7b2e51db98fcd070a3142f3d4e7ab5314f4b533c795"
+    },
+    "streamable-http/wrong-subscription-id.json": {
+      "failure_kind": "subscriptions.unknown_id",
+      "minimized_actions": 1,
+      "replays": 10,
+      "sha256": "52f4fef35cb2018a2febaeb134ddb03ccfd47889a32ae82be3dd7f24b0e2c87c",
+      "signature": "mcp-statecheck:v1:9037a79351d8f77af6039f96f31686d4e212fa6d790c88921088bf334fcc8bd6"
+    }
+  }
+}

@@ -151,6 +151,29 @@ def _parser() -> argparse.ArgumentParser:
         "--output", type=Path, default=Path("artifacts/tasks-failure.json")
     )
     _add_report_outputs(tasks)
+
+    subscriptions = subparsers.add_parser(
+        "subscriptions",
+        help="generate, shrink, and replay a controlled subscription delivery defect",
+    )
+    subscriptions.add_argument(
+        "--fixture",
+        choices=(
+            "notification-before-ack",
+            "wrong-subscription-id",
+            "unsolicited-notification",
+        ),
+        default="notification-before-ack",
+    )
+    subscriptions.add_argument(
+        "--transport", choices=("stdio", "streamable-http"), default="stdio"
+    )
+    subscriptions.add_argument("--seed", type=int, default=20260927)
+    subscriptions.add_argument("--timeout", type=_positive_float, default=5.0)
+    subscriptions.add_argument(
+        "--output", type=Path, default=Path("artifacts/subscriptions-failure.json")
+    )
+    _add_report_outputs(subscriptions)
     return parser
 
 
@@ -890,15 +913,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_matrix(args)
     if args.subcommand == "replay":
         return _run_replay(args)
-    if args.subcommand == "tasks":
-        return _run_tasks(args)
+    if args.subcommand in {"tasks", "subscriptions"}:
+        return _run_controlled_campaign(args)
     raise AssertionError(f"unhandled subcommand: {args.subcommand}")
 
 
-def _run_tasks(args: argparse.Namespace) -> int:
+def _run_controlled_campaign(args: argparse.Namespace) -> int:
     from .replay import ReplayInfrastructureError, ReplayMismatch
     from .stateful import NoFailureFound
-    from .task_campaign import build_task_artifact
+
+    if args.subcommand == "tasks":
+        from .task_campaign import build_task_artifact as build_artifact
+
+        label = "Tasks"
+    else:
+        from .subscription_campaign import build_artifact
+
+        label = "Subscriptions"
 
     try:
         validate_output_paths(
@@ -907,7 +938,7 @@ def _run_tasks(args: argparse.Namespace) -> int:
             sarif_path=args.sarif,
             html_path=args.html,
         )
-        path = build_task_artifact(
+        path = build_artifact(
             args.output,
             fixture_id=args.fixture,
             transport=args.transport,
@@ -938,8 +969,9 @@ def _run_tasks(args: argparse.Namespace) -> int:
         print(f"mcp-statecheck: {_safe_message(exc)}", file=sys.stderr)
         return 2
     print(
-        f"Tasks fixture reproduced: {artifact['failure']['kind']}; "
-        f"{len(artifact['failure']['minimized_reproducer'])} actions; "
+        f"{label} fixture reproduced: {artifact['failure']['kind']}; "
+        f"{len(artifact['failure']['minimized_reproducer'])} "
+        f"{'action' if len(artifact['failure']['minimized_reproducer']) == 1 else 'actions'}; "
         f"replay 10/10; wrote {path}"
     )
     return 1

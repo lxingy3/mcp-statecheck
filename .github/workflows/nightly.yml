@@ -46,6 +46,9 @@ jobs:
       - name: Run M6.2 Tasks state-machine acceptance
         timeout-minutes: 8
         run: uv run --locked --no-dev python scripts/run_m6_tasks_acceptance.py --check
+      - name: Run M6.3 subscription delivery acceptance
+        timeout-minutes: 8
+        run: uv run --locked --no-dev python -m mcp_statecheck.subscription_campaign --check
       - name: Run Git application server acceptance
         timeout-minutes: 8
         run: >-
