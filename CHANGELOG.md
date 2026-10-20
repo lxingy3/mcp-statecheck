@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added eight pinned SDK subscription lifecycle cells for native cancellation,
+  abrupt-drop detection, explicit re-subscription, and tool-list refetch, with
+  clean wheel/sdist acceptance and CI coverage.
 - Added a four-cell, pinned Python and TypeScript SDK subscription acceptance
   gate across stdio and Streamable HTTP, with real `listen` APIs and graceful
   completion checks.
