@@ -66,3 +66,26 @@ event and its iterator ends normally. TypeScript dispatches
 `2026-07-28` protocol, and close cleanly. Four cells match byte-for-byte across
 two runs. This does not test native cancellation, abrupt reconnect, SDK servers,
 or arbitrary servers.
+
+## M6.6 native lifecycle follow-up (2026-10-20)
+
+The locked SDK versions remain unchanged. The pinned
+[Python subscription guide](https://github.com/modelcontextprotocol/python-sdk/blob/v2.1.1/docs/client/subscriptions.md)
+defines context exit as cancellation and `SubscriptionLost` as an abrupt end.
+The installed TypeScript 2.0.0 implementation exposes `close()` and the
+`"local"`, `"graceful"`, and `"remote"` outcomes of `closed`. Both require an
+explicit new `listen` call after a lost stream. The
+[protocol cancellation rules](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/patterns/subscriptions.mdx)
+use a correlated cancellation notification on stdio and stream closure on HTTP.
+
+The eight-cell gate exercises these APIs directly, then receives a replacement
+event and refetches `tools/list` with cache refresh. Cancellation keeps the same
+client; drop recovery creates a new client. The controlled peer identifies its
+first subscription from the actual listen request, not a fixed numeric ID or
+the discovery request. A replacement stdio subscription succeeds only after
+the matching cancellation; HTTP requires the previous SSE socket to close.
+
+The report distinguishes local cancellation from the SDK's loss outcome and
+from the replacement's graceful completion. This is bounded client-side
+recovery evidence, without automatic retry, missed-event replay, or SDK-server
+coverage.

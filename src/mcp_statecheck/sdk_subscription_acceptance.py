@@ -20,6 +20,9 @@ CHECKED = (
     / "m6-sdk-subscriptions"
     / "acceptance.json"
 )
+LIFECYCLE_CHECKED = (
+    CHECKED.parent.with_name("m6-sdk-subscription-lifecycle") / "acceptance.json"
+)
 RUNNERS = ("python-v2", "typescript-v2")
 TRANSPORTS = ("stdio", "streamable-http")
 EXPECTED = {
@@ -37,7 +40,13 @@ EXPECTED = {
 
 
 def _adapter(
-    runner: str, transport: str, target: list[str] | str, runtime: matrix._MatrixRuntime
+    runner: str,
+    transport: str,
+    target: list[str] | str,
+    runtime: matrix._MatrixRuntime,
+    *,
+    scenario: str = "graceful",
+    recovery_target: list[str] | str | None = None,
 ) -> dict:
     environment = matrix._isolated_environment()
     if runner == "python-v2":
@@ -61,9 +70,14 @@ def _adapter(
         environment["MCP_STATECHECK_NODE_ENV"] = str(
             runtime.typescript_environments[runner]
         )
+    probe = {"transport": transport, "target": target}
+    if scenario != "graceful":
+        probe["scenario"] = scenario
+    if scenario == "drop":
+        probe["recovery_target"] = recovery_target
     completed = subprocess.run(
         command,
-        input=json.dumps({"transport": transport, "target": target}),
+        input=json.dumps(probe),
         capture_output=True,
         cwd=runtime.workdir,
         env=environment,
@@ -90,6 +104,15 @@ def _adapter(
         "sdk_version": EXPECTED[runner]["sdk_version"],
         "termination": "graceful",
     }
+    if scenario == "cancel":
+        expected["termination"] = "local"
+        expected["replacement"] = {
+            key: expected[key] for key in ("events", "honored_filter")
+        } | {"termination": "graceful"}
+        expected["refetched_tools"] = []
+    elif scenario == "drop":
+        expected["replacement"] = {**expected, "refetched_tools": []}
+        expected["termination"] = "lost" if runner == "python-v2" else "remote"
     if result != expected:
         raise RuntimeError(
             f"{runner}/{transport} SDK subscription behavior changed: {result}"
@@ -97,7 +120,9 @@ def _adapter(
     return result
 
 
-def _run_cells(runtime: matrix._MatrixRuntime) -> dict[str, dict]:
+def _run_cells(
+    runtime: matrix._MatrixRuntime, *, lifecycle: bool = False
+) -> dict[str, dict]:
     cells: dict[str, dict] = {}
     for runner in RUNNERS:
         target = [
@@ -108,36 +133,64 @@ def _run_cells(runtime: matrix._MatrixRuntime) -> dict[str, dict]:
             "--mode",
             "conforming",
         ]
-        cells[f"{runner}/stdio"] = _adapter(runner, "stdio", target, runtime)
-        with ControlledSubscriptionHTTPPeer("conforming") as peer:
-            result = _adapter(runner, "streamable-http", peer.url, runtime)
-        if not peer.closed:
-            raise RuntimeError("controlled SDK subscription HTTP peer did not close")
-        cells[f"{runner}/streamable-http"] = result
+        scenarios = ("cancel", "drop") if lifecycle else ("graceful",)
+        for scenario in scenarios:
+            mode = {
+                "graceful": "conforming",
+                "cancel": "held-cancel",
+                "drop": "drop-first",
+            }[scenario]
+            suffix = f"/{scenario}" if lifecycle else ""
+            cells[f"{runner}/stdio{suffix}"] = _adapter(
+                runner,
+                "stdio",
+                [*target[:-1], mode],
+                runtime,
+                scenario=scenario,
+                recovery_target=target,
+            )
+            with ControlledSubscriptionHTTPPeer(mode) as peer:
+                result = _adapter(
+                    runner,
+                    "streamable-http",
+                    peer.url,
+                    runtime,
+                    scenario=scenario,
+                    recovery_target=peer.url,
+                )
+                if scenario == "cancel" and not peer.cancel_seen.is_set():
+                    raise RuntimeError("SDK cancellation did not close its SSE stream")
+            if not peer.closed:
+                raise RuntimeError(
+                    "controlled SDK subscription HTTP peer did not close"
+                )
+            cells[f"{runner}/streamable-http{suffix}"] = result
     return cells
 
 
-def run_acceptance(output: Path, *, check: bool) -> dict:
+def run_acceptance(output: Path, *, check: bool, lifecycle: bool = False) -> dict:
     with TemporaryDirectory(prefix="mcp-statecheck-sdk-subscriptions-") as temporary:
         runtime = matrix._materialize_modern_runtime(Path(temporary) / "runners")
         runners = matrix._load_modern_runners(matrix._modern_config())
         matrix._prepare_python(runners, runtime)
         matrix._prepare_typescript(runners, runtime)
-        first = _run_cells(runtime)
-        if _run_cells(runtime) != first:
+        first = _run_cells(runtime, lifecycle=lifecycle)
+        if _run_cells(runtime, lifecycle=lifecycle) != first:
             raise RuntimeError("SDK subscription campaigns were not byte-identical")
     summary = {
         "schema_version": 1,
-        "milestone": "M6.5",
+        "milestone": "M6.6" if lifecycle else "M6.5",
         "status": "passed",
-        "profile": "sdk-native-subscriptions",
+        "profile": "sdk-native-subscription-lifecycle"
+        if lifecycle
+        else "sdk-native-subscriptions",
         "protocol_version": matrix.MODERN_PROTOCOL_VERSION,
         "runs": 2,
         "cells": first,
     }
     content = (json.dumps(summary, indent=2, sort_keys=True) + "\n").encode()
     if check:
-        if CHECKED.read_bytes() != content:
+        if (LIFECYCLE_CHECKED if lifecycle else CHECKED).read_bytes() != content:
             raise RuntimeError(
                 "SDK subscription evidence differs from checked artifact"
             )
@@ -149,14 +202,20 @@ def run_acceptance(output: Path, *, check: bool) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Recheck M6.5 pinned SDK-native subscription evidence"
+        description="Recheck pinned SDK-native subscription evidence"
     )
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--output", type=Path, default=CHECKED)
+    parser.add_argument(
+        "--lifecycle",
+        action="store_true",
+        help="run M6.6 cancellation and reconnect checks",
+    )
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    summary = run_acceptance(args.output, check=args.check)
+    output = args.output or (LIFECYCLE_CHECKED if args.lifecycle else CHECKED)
+    summary = run_acceptance(output, check=args.check, lifecycle=args.lifecycle)
     print(
-        f"M6.5 SDK subscriptions passed: {len(summary['cells'])} cells, "
+        f"{summary['milestone']} SDK subscriptions passed: {len(summary['cells'])} cells, "
         f"{summary['runs']} identical runs"
     )
     return 0

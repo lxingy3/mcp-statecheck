@@ -17,59 +17,93 @@ const sdkVersion = JSON.parse(
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const command = JSON.parse(input);
-if (Object.keys(command).sort().join(",") !== "target,transport") {
+const scenario = "scenario" in command ? command.scenario : "graceful";
+const keys = ["target", "transport"];
+if ("scenario" in command) keys.push("scenario");
+if (scenario === "drop") keys.push("recovery_target");
+if (Object.keys(command).sort().join(",") !== keys.sort().join(",") ||
+    !["graceful", "cancel", "drop"].includes(scenario)) {
   throw new Error("invalid subscription probe command");
 }
 
-let transport;
-if (command.transport === "stdio") {
-  if (!Array.isArray(command.target) || !command.target.length ||
-      !command.target.every((part) => typeof part === "string" && part)) {
-    throw new Error("stdio target must be an argv list");
+async function probe(transportKind, target, scenario) {
+  let transport;
+  if (transportKind === "stdio") {
+    if (!Array.isArray(target) || !target.length ||
+        !target.every((part) => typeof part === "string" && part)) {
+      throw new Error("stdio target must be an argv list");
+    }
+    transport = new StdioClientTransport({ command: target[0], args: target.slice(1) });
+  } else if (transportKind === "streamable-http") {
+    if (typeof target !== "string") throw new Error("HTTP target must be a URL");
+    const url = new URL(target);
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.pathname !== "/mcp" ||
+        url.username || url.password || url.search || url.hash) {
+      throw new Error("HTTP target must be loopback /mcp");
+    }
+    transport = new StreamableHTTPClientTransport(url);
+  } else {
+    throw new Error("unsupported subscription transport");
   }
-  transport = new StdioClientTransport({ command: command.target[0], args: command.target.slice(1) });
-} else if (command.transport === "streamable-http") {
-  const target = new URL(command.target);
-  if (target.protocol !== "http:" || target.hostname !== "127.0.0.1" || target.pathname !== "/mcp" ||
-      target.username || target.password || target.search || target.hash) {
-    throw new Error("HTTP target must be loopback /mcp");
+
+  let negotiatedVersion;
+  const setProtocolVersion = transport.setProtocolVersion?.bind(transport);
+  transport.setProtocolVersion = (version) => {
+    negotiatedVersion = version;
+    setProtocolVersion?.(version);
+  };
+  const client = new Client(
+    { name: "mcp-statecheck", version: "0.1.0" },
+    { capabilities: {}, versionNegotiation: { mode: { pin: protocol } } },
+  );
+  const events = [];
+  const firstEvent = Promise.withResolvers();
+  client.setNotificationHandler("notifications/tools/list_changed", (notification) => {
+    events.push(notification.method);
+    firstEvent.resolve();
+  });
+  let result;
+  try {
+    await client.connect(transport);
+    if (client.getProtocolEra() !== "modern" || negotiatedVersion !== protocol) {
+      throw new Error("TypeScript SDK did not negotiate the modern protocol");
+    }
+    const subscription = await client.listen({ toolsListChanged: true });
+    if (scenario === "cancel") {
+      await firstEvent.promise;
+      await subscription.close();
+    }
+    const termination = await subscription.closed;
+    result = {
+      events: [...events],
+      honored_filter: subscription.honoredFilter,
+      protocol_version: negotiatedVersion,
+      runtime_version: process.versions.node,
+      sdk_version: sdkVersion,
+      termination,
+    };
+    if (scenario === "cancel") {
+      events.length = 0;
+      const replacement = await client.listen({ toolsListChanged: true });
+      const termination = await replacement.closed;
+      result.replacement = {
+        events: [...events],
+        honored_filter: replacement.honoredFilter,
+        termination,
+      };
+    }
+    if (scenario === "cancel" || scenario === "refetch") {
+      result.refetched_tools = (await client.listTools(undefined, { cacheMode: "refresh" })).tools.map((tool) => tool.name);
+    }
+  } finally {
+    await client.close();
   }
-  transport = new StreamableHTTPClientTransport(target);
-} else {
-  throw new Error("unsupported subscription transport");
+  result.client_closed = true;
+  return result;
 }
 
-let negotiatedVersion;
-const setProtocolVersion = transport.setProtocolVersion?.bind(transport);
-transport.setProtocolVersion = (version) => {
-  negotiatedVersion = version;
-  setProtocolVersion?.(version);
-};
-const client = new Client(
-  { name: "mcp-statecheck", version: "0.1.0" },
-  { capabilities: {}, versionNegotiation: { mode: { pin: protocol } } },
-);
-const events = [];
-client.setNotificationHandler("notifications/tools/list_changed", (notification) => {
-  events.push(notification.method);
-});
-let result;
-try {
-  await client.connect(transport);
-  if (client.getProtocolEra() !== "modern" || negotiatedVersion !== protocol) {
-    throw new Error("TypeScript SDK did not negotiate the modern protocol");
-  }
-  const subscription = await client.listen({ toolsListChanged: true });
-  result = {
-    events,
-    honored_filter: subscription.honoredFilter,
-    protocol_version: negotiatedVersion,
-    runtime_version: process.versions.node,
-    sdk_version: sdkVersion,
-    termination: await subscription.closed,
-  };
-} finally {
-  await client.close();
+const result = await probe(command.transport, command.target, scenario);
+if (scenario === "drop") {
+  result.replacement = await probe(command.transport, command.recovery_target, "refetch");
 }
-result.client_closed = true;
 process.stdout.write(`${JSON.stringify(result)}\n`);

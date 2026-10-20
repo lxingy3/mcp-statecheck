@@ -884,35 +884,38 @@ def _accept(
                 raise AcceptanceError(
                     "subscription lifecycle imported an untrusted working-directory peer"
                 )
-            sdk_output = work / f"sdk-subscriptions-{package_kind}.json"
-            _run(
-                [
-                    installed_python,
-                    "-I",
-                    "-m",
-                    "mcp_statecheck.sdk_subscription_acceptance",
-                    "--output",
-                    sdk_output,
-                ],
-                cwd=replay_consumer,
-                environment=environment,
-                timeout=TIMEOUTS["matrix"],
-                expected=(0,),
-                label=f"clean {package_kind} SDK subscription acceptance",
-            )
-            if (
-                sdk_output.read_bytes()
-                != (
-                    ROOT / "artifacts" / "m6-sdk-subscriptions" / "acceptance.json"
-                ).read_bytes()
+            for profile, options in (
+                ("m6-sdk-subscriptions", []),
+                ("m6-sdk-subscription-lifecycle", ["--lifecycle"]),
             ):
-                raise AcceptanceError(
-                    f"installed {package_kind} SDK subscription evidence changed"
+                sdk_output = work / f"{profile}-{package_kind}.json"
+                _run(
+                    [
+                        installed_python,
+                        "-I",
+                        "-m",
+                        "mcp_statecheck.sdk_subscription_acceptance",
+                        *options,
+                        "--output",
+                        sdk_output,
+                    ],
+                    cwd=replay_consumer,
+                    environment=environment,
+                    timeout=TIMEOUTS["matrix"],
+                    expected=(0,),
+                    label=f"clean {package_kind} {profile} acceptance",
                 )
-            if sentinel.exists():
-                raise AcceptanceError(
-                    "SDK subscription probe imported an untrusted working-directory peer"
-                )
+                if (
+                    sdk_output.read_bytes()
+                    != (ROOT / "artifacts" / profile / "acceptance.json").read_bytes()
+                ):
+                    raise AcceptanceError(
+                        f"installed {package_kind} {profile} evidence changed"
+                    )
+                if sentinel.exists():
+                    raise AcceptanceError(
+                        "SDK subscription probe imported an untrusted working-directory peer"
+                    )
 
         reports = work / "reports"
         stdio_artifact = reports / "stdio.json"
@@ -1216,6 +1219,13 @@ def _accept(
                 "status": "passed",
                 "working_directory_isolated": True,
             },
+            "sdk_subscription_lifecycle": {
+                "cells": 8,
+                "identical_runs": 2,
+                "installs": ["wheel", "sdist"],
+                "status": "passed",
+                "working_directory_isolated": True,
+            },
             "replay": {
                 "attempts_per_fixture": 10,
                 "fixtures": len(REPLAY_FIXTURES),
@@ -1277,7 +1287,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "and Streamable HTTP checks, five installed replays, 16 installed "
             "legacy matrix cells, four installed modern matrix cells, twelve installed Tasks and twelve "
             "subscription replays, two subscription lifecycle and two SDK "
-            "subscription installations, and four "
+            "subscription delivery/lifecycle installations, and four "
             "report formats per transport; "
             f"wrote {args.output}"
         )
