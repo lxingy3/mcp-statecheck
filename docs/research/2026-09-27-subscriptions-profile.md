@@ -47,3 +47,22 @@ peer observes that socket closure, and a new request succeeds. Separate peers
 drop the first stream without completion, then accept a fresh subscription.
 The gate records five cells from two byte-identical runs. It does not claim
 SDK-native handling, arbitrary-target recovery, or all cancellation races.
+
+## M6.5 pinned SDK client follow-up
+
+The pinned Python [`mcp 2.1.1`](https://pypi.org/project/mcp/2.1.1/) exposes
+`Client.listen(...)` as an async context manager; the pinned TypeScript
+[`@modelcontextprotocol/client 2.0.0`](https://www.npmjs.com/package/@modelcontextprotocol/client/v/2.0.0)
+exposes `Client.listen(filter)` with a `McpSubscription.closed` outcome. The
+published APIs are described in the [Python client guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/client/subscriptions.md)
+and [TypeScript subscription example](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/subscriptions/client.ts).
+The exact locked packages were inspected and exercised for this gate.
+
+M6.5 runs those native clients against the package-controlled conforming peer
+over stdio and Streamable HTTP. Python receives a typed `ToolsListChanged`
+event and its iterator ends normally. TypeScript dispatches
+`notifications/tools/list_changed` to its registered handler and reports
+`closed === "graceful"`. Both clients observe the honored filter, use the
+`2026-07-28` protocol, and close cleanly. Four cells match byte-for-byte across
+two runs. This does not test native cancellation, abrupt reconnect, SDK servers,
+or arbitrary servers.

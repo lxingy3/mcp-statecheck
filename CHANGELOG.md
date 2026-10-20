@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added a four-cell, pinned Python and TypeScript SDK subscription acceptance
+  gate across stdio and Streamable HTTP, with real `listen` APIs and graceful
+  completion checks.
 - Added controlled subscription cancellation and abrupt-disconnect recovery
   checks over stdio and Streamable HTTP, including a repeatable late-delivery
   fault and clean wheel/sdist acceptance.

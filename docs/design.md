@@ -11,9 +11,11 @@ Streamable HTTP, including initialization, capability negotiation, concurrent
 requests, cancellation, sessions, SSE resumption, and transport errors. M6.1
 adds the stateless `2026-07-28` revision through a separate action profile.
 M6.2 adds a separate Tasks extension wire profile against controlled peers;
-M6.3 adds controlled subscription delivery checks. SDK-native Tasks and
-subscriptions, and other agent protocols remain outside scope.
-M6.4 adds a controlled cancellation and reconnect lifecycle gate.
+M6.3 adds controlled subscription delivery checks. M6.4 adds a controlled
+cancellation and reconnect lifecycle gate. M6.5 checks native subscription
+delivery and graceful completion in pinned Python and TypeScript SDK clients.
+SDK-native Tasks, subscription cancellation, and other agent protocols remain
+outside scope.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -353,6 +355,18 @@ the gate records that as an abrupt disconnect and verifies a fresh
 subscription. The saved acceptance report contains five cells, two identical
 runs, and ten identical replays of the late-delivery fault. It does not cover
 real SDK subscription APIs or arbitrary servers.
+
+## M6.5 SDK subscription gate
+
+The pinned Python `mcp 2.1.1` and TypeScript `@modelcontextprotocol/client 2.0.0`
+clients each call their public `listen` API over stdio and Streamable HTTP.
+Package-controlled peers acknowledge a tool-list-change filter, send one
+matching notification, and complete the request. The SDK adapters verify the
+honored filter, delivered event, modern protocol version, graceful termination,
+and client cleanup. The acceptance report contains four cells from two
+byte-identical runs. This is client interoperability evidence for delivery and
+graceful close, not SDK-native cancellation, reconnect, or arbitrary-server
+conformance.
 
 ## v0.1 release gate
 

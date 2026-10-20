@@ -60,6 +60,24 @@ def respond(message: object, mode: str) -> list[dict[str, Any]]:
         meta.get("io.modelcontextprotocol/clientInfo"), dict
     ) or not isinstance(meta.get("io.modelcontextprotocol/clientCapabilities"), dict):
         return [_error(request_id, "missing client metadata")]
+    if message.get("method") == "server/discover":
+        return [
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "resultType": "complete",
+                    "supportedVersions": [PROTOCOL],
+                    "capabilities": {"tools": {"listChanged": True}},
+                    "_meta": {
+                        "io.modelcontextprotocol/serverInfo": {
+                            "name": "controlled-subscription-peer",
+                            "version": "0.1",
+                        }
+                    },
+                },
+            }
+        ]
     if message.get("method") == "tools/list":
         return [
             {

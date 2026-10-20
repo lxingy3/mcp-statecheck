@@ -1,0 +1,62 @@
+{
+  "cells": {
+    "python-v2/stdio": {
+      "client_closed": true,
+      "events": [
+        "ToolsListChanged"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "termination": "graceful"
+    },
+    "python-v2/streamable-http": {
+      "client_closed": true,
+      "events": [
+        "ToolsListChanged"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "termination": "graceful"
+    },
+    "typescript-v2/stdio": {
+      "client_closed": true,
+      "events": [
+        "notifications/tools/list_changed"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "termination": "graceful"
+    },
+    "typescript-v2/streamable-http": {
+      "client_closed": true,
+      "events": [
+        "notifications/tools/list_changed"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "termination": "graceful"
+    }
+  },
+  "milestone": "M6.5",
+  "profile": "sdk-native-subscriptions",
+  "protocol_version": "2026-07-28",
+  "runs": 2,
+  "schema_version": 1,
+  "status": "passed"
+}
