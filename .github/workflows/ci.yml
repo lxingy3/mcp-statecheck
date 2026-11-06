@@ -68,6 +68,9 @@ jobs:
       - name: Run M6.6 SDK subscription lifecycle acceptance
         timeout-minutes: 5
         run: uv run python -m mcp_statecheck.sdk_subscription_acceptance --lifecycle --check
+      - name: Run M6.7 concurrent SDK subscription acceptance
+        timeout-minutes: 5
+        run: uv run python -m mcp_statecheck.sdk_subscription_acceptance --concurrent --check
       - name: Run pinned external server canary
         timeout-minutes: 5
         run: >-

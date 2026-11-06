@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 
 const protocol = "2026-07-28";
+const resource = "file:///controlled/config.json";
 const environment = process.env.MCP_STATECHECK_NODE_ENV;
 if (!environment) throw new Error("MCP_STATECHECK_NODE_ENV is required");
 const requireSdk = createRequire(join(environment, "package.json"));
@@ -22,8 +23,59 @@ const keys = ["target", "transport"];
 if ("scenario" in command) keys.push("scenario");
 if (scenario === "drop") keys.push("recovery_target");
 if (Object.keys(command).sort().join(",") !== keys.sort().join(",") ||
-    !["graceful", "cancel", "drop"].includes(scenario)) {
+    !["graceful", "cancel", "drop", "concurrent-first", "concurrent-second"].includes(scenario)) {
   throw new Error("invalid subscription probe command");
+}
+
+async function concurrent(client, transport, cancelledIndex) {
+  const ids = [];
+  const events = [];
+  const initial = Promise.withResolvers();
+  let phase = "before_cancel";
+  const send = transport.send.bind(transport);
+  // Observe public transport messages without changing SDK correlation or cancellation.
+  transport.send = (message, options) => {
+    if (message.method === "subscriptions/listen") ids.push(message.id);
+    return send(message, options);
+  };
+  for (const method of ["notifications/tools/list_changed", "notifications/resources/updated"]) {
+    client.setNotificationHandler(method, (notification) => {
+      const event = { type: notification.method };
+      if (method === "notifications/resources/updated") event.uri = notification.params.uri;
+      events.push({ id: notification.params?._meta?.["io.modelcontextprotocol/subscriptionId"], phase, event });
+      if (events.length === 2) initial.resolve();
+    });
+  }
+  try {
+    const subscriptions = [
+      await client.listen({ toolsListChanged: true }),
+      await client.listen({ resourceSubscriptions: [resource] }),
+    ];
+    if (ids.length !== 2 || ids[0] === ids[1]) throw new Error("concurrent subscriptions reused an ID");
+    await client.listTools(undefined, { cacheMode: "refresh" });
+    await initial.promise;
+    await subscriptions[cancelledIndex].close();
+    const cancelled = await subscriptions[cancelledIndex].closed;
+    phase = "after_cancel";
+    const tools = await client.listTools(undefined, { cacheMode: "refresh" });
+    const survivor = await subscriptions[1 - cancelledIndex].closed;
+    // A graceful close with a missing final event must fail rather than hang.
+    if (events.length < 3) throw new Error("surviving subscription did not deliver after cancellation");
+    if (events.some(({ id }) => !ids.includes(id))) throw new Error("notification used an unknown subscription ID");
+    return {
+      distinct_ids: true,
+      cancelled_index: cancelledIndex,
+      refetched_tools: tools.tools.map((tool) => tool.name),
+      subscriptions: subscriptions.map((sub, index) => ({
+        honored_filter: sub.honoredFilter,
+        before_cancel: events.filter((item) => item.id === ids[index] && item.phase === "before_cancel").map((item) => item.event),
+        after_cancel: events.filter((item) => item.id === ids[index] && item.phase === "after_cancel").map((item) => item.event),
+        termination: index === cancelledIndex ? cancelled : survivor,
+      })),
+    };
+  } finally {
+    transport.send = send;
+  }
 }
 
 async function probe(transportKind, target, scenario) {
@@ -68,33 +120,39 @@ async function probe(transportKind, target, scenario) {
     if (client.getProtocolEra() !== "modern" || negotiatedVersion !== protocol) {
       throw new Error("TypeScript SDK did not negotiate the modern protocol");
     }
-    const subscription = await client.listen({ toolsListChanged: true });
-    if (scenario === "cancel") {
-      await firstEvent.promise;
-      await subscription.close();
+    if (scenario === "concurrent-first" || scenario === "concurrent-second") {
+      result = await concurrent(client, transport, Number(scenario === "concurrent-second"));
+    } else {
+      const subscription = await client.listen({ toolsListChanged: true });
+      if (scenario === "cancel") {
+        await firstEvent.promise;
+        await subscription.close();
+      }
+      const termination = await subscription.closed;
+      result = {
+        events: [...events],
+        honored_filter: subscription.honoredFilter,
+        termination,
+      };
+      if (scenario === "cancel") {
+        events.length = 0;
+        const replacement = await client.listen({ toolsListChanged: true });
+        const termination = await replacement.closed;
+        result.replacement = {
+          events: [...events],
+          honored_filter: replacement.honoredFilter,
+          termination,
+        };
+      }
+      if (scenario === "cancel" || scenario === "refetch") {
+        result.refetched_tools = (await client.listTools(undefined, { cacheMode: "refresh" })).tools.map((tool) => tool.name);
+      }
     }
-    const termination = await subscription.closed;
-    result = {
-      events: [...events],
-      honored_filter: subscription.honoredFilter,
+    Object.assign(result, {
       protocol_version: negotiatedVersion,
       runtime_version: process.versions.node,
       sdk_version: sdkVersion,
-      termination,
-    };
-    if (scenario === "cancel") {
-      events.length = 0;
-      const replacement = await client.listen({ toolsListChanged: true });
-      const termination = await replacement.closed;
-      result.replacement = {
-        events: [...events],
-        honored_filter: replacement.honoredFilter,
-        termination,
-      };
-    }
-    if (scenario === "cancel" || scenario === "refetch") {
-      result.refetched_tools = (await client.listTools(undefined, { cacheMode: "refresh" })).tools.map((tool) => tool.name);
-    }
+    });
   } finally {
     await client.close();
   }

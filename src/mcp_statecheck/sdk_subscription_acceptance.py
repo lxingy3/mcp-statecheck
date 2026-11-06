@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from . import matrix
-from ._subscription_peer import ControlledSubscriptionHTTPPeer
+from ._subscription_peer import RESOURCE, ControlledSubscriptionHTTPPeer
 
 CHECKED = (
     Path(__file__).resolve().parents[2]
@@ -22,6 +22,9 @@ CHECKED = (
 )
 LIFECYCLE_CHECKED = (
     CHECKED.parent.with_name("m6-sdk-subscription-lifecycle") / "acceptance.json"
+)
+CONCURRENT_CHECKED = (
+    CHECKED.parent.with_name("m6-sdk-concurrent-subscriptions") / "acceptance.json"
 )
 RUNNERS = ("python-v2", "typescript-v2")
 TRANSPORTS = ("stdio", "streamable-http")
@@ -113,15 +116,49 @@ def _adapter(
     elif scenario == "drop":
         expected["replacement"] = {**expected, "refetched_tools": []}
         expected["termination"] = "lost" if runner == "python-v2" else "remote"
+    elif scenario in {"concurrent-first", "concurrent-second"}:
+        cancelled_index = int(scenario == "concurrent-second")
+        events = [
+            {"type": EXPECTED[runner]["events"][0]},
+            {
+                "type": "ResourceUpdated"
+                if runner == "python-v2"
+                else "notifications/resources/updated",
+                "uri": RESOURCE,
+            },
+        ]
+        filters = [{"toolsListChanged": True}, {"resourceSubscriptions": [RESOURCE]}]
+        expected = {
+            key: expected[key]
+            for key in (
+                "client_closed",
+                "protocol_version",
+                "runtime_version",
+                "sdk_version",
+            )
+        } | {
+            "distinct_ids": True,
+            "cancelled_index": cancelled_index,
+            "refetched_tools": [],
+            "subscriptions": [
+                {
+                    "honored_filter": filters[index],
+                    "before_cancel": [event],
+                    "after_cancel": [] if index == cancelled_index else [event],
+                    "termination": "local" if index == cancelled_index else "graceful",
+                }
+                for index, event in enumerate(events)
+            ],
+        }
     if result != expected:
         raise RuntimeError(
-            f"{runner}/{transport} SDK subscription behavior changed: {result}"
+            f"{runner}/{transport}/{scenario} SDK subscription behavior changed: {result}"
         )
     return result
 
 
 def _run_cells(
-    runtime: matrix._MatrixRuntime, *, lifecycle: bool = False
+    runtime: matrix._MatrixRuntime, *, lifecycle: bool = False, concurrent: bool = False
 ) -> dict[str, dict]:
     cells: dict[str, dict] = {}
     for runner in RUNNERS:
@@ -134,13 +171,17 @@ def _run_cells(
             "conforming",
         ]
         scenarios = ("cancel", "drop") if lifecycle else ("graceful",)
+        if concurrent:
+            scenarios = ("concurrent-first", "concurrent-second")
         for scenario in scenarios:
             mode = {
                 "graceful": "conforming",
                 "cancel": "held-cancel",
                 "drop": "drop-first",
+                "concurrent-first": "concurrent",
+                "concurrent-second": "concurrent",
             }[scenario]
-            suffix = f"/{scenario}" if lifecycle else ""
+            suffix = f"/{scenario}" if lifecycle or concurrent else ""
             cells[f"{runner}/stdio{suffix}"] = _adapter(
                 runner,
                 "stdio",
@@ -168,20 +209,26 @@ def _run_cells(
     return cells
 
 
-def run_acceptance(output: Path, *, check: bool, lifecycle: bool = False) -> dict:
+def run_acceptance(
+    output: Path, *, check: bool, lifecycle: bool = False, concurrent: bool = False
+) -> dict:
+    if lifecycle and concurrent:
+        raise ValueError("select only one SDK subscription profile")
     with TemporaryDirectory(prefix="mcp-statecheck-sdk-subscriptions-") as temporary:
         runtime = matrix._materialize_modern_runtime(Path(temporary) / "runners")
         runners = matrix._load_modern_runners(matrix._modern_config())
         matrix._prepare_python(runners, runtime)
         matrix._prepare_typescript(runners, runtime)
-        first = _run_cells(runtime, lifecycle=lifecycle)
-        if _run_cells(runtime, lifecycle=lifecycle) != first:
+        first = _run_cells(runtime, lifecycle=lifecycle, concurrent=concurrent)
+        if _run_cells(runtime, lifecycle=lifecycle, concurrent=concurrent) != first:
             raise RuntimeError("SDK subscription campaigns were not byte-identical")
     summary = {
         "schema_version": 1,
-        "milestone": "M6.6" if lifecycle else "M6.5",
+        "milestone": "M6.7" if concurrent else "M6.6" if lifecycle else "M6.5",
         "status": "passed",
-        "profile": "sdk-native-subscription-lifecycle"
+        "profile": "sdk-native-concurrent-subscriptions"
+        if concurrent
+        else "sdk-native-subscription-lifecycle"
         if lifecycle
         else "sdk-native-subscriptions",
         "protocol_version": matrix.MODERN_PROTOCOL_VERSION,
@@ -190,7 +237,14 @@ def run_acceptance(output: Path, *, check: bool, lifecycle: bool = False) -> dic
     }
     content = (json.dumps(summary, indent=2, sort_keys=True) + "\n").encode()
     if check:
-        if (LIFECYCLE_CHECKED if lifecycle else CHECKED).read_bytes() != content:
+        checked = (
+            CONCURRENT_CHECKED
+            if concurrent
+            else LIFECYCLE_CHECKED
+            if lifecycle
+            else CHECKED
+        )
+        if checked.read_bytes() != content:
             raise RuntimeError(
                 "SDK subscription evidence differs from checked artifact"
             )
@@ -205,15 +259,29 @@ def main() -> int:
         description="Recheck pinned SDK-native subscription evidence"
     )
     parser.add_argument("--check", action="store_true")
-    parser.add_argument(
+    profile = parser.add_mutually_exclusive_group()
+    profile.add_argument(
         "--lifecycle",
         action="store_true",
         help="run M6.6 cancellation and reconnect checks",
     )
+    profile.add_argument(
+        "--concurrent",
+        action="store_true",
+        help="run M6.7 concurrent subscription isolation checks",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    output = args.output or (LIFECYCLE_CHECKED if args.lifecycle else CHECKED)
-    summary = run_acceptance(output, check=args.check, lifecycle=args.lifecycle)
+    output = args.output or (
+        CONCURRENT_CHECKED
+        if args.concurrent
+        else LIFECYCLE_CHECKED
+        if args.lifecycle
+        else CHECKED
+    )
+    summary = run_acceptance(
+        output, check=args.check, lifecycle=args.lifecycle, concurrent=args.concurrent
+    )
     print(
         f"{summary['milestone']} SDK subscriptions passed: {len(summary['cells'])} cells, "
         f"{summary['runs']} identical runs"

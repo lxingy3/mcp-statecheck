@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import sys
 import threading
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -20,6 +22,7 @@ MODES = (
     "held-cancel",
     "late-after-cancel",
     "drop-first",
+    "concurrent",
 )
 SUBSCRIPTION_ID = "io.modelcontextprotocol/subscriptionId"
 
@@ -141,6 +144,78 @@ def respond(message: object, mode: str) -> list[dict[str, Any]]:
     return [ack, *delivered, finished]
 
 
+class _ConcurrentSubscriptions:
+    """Two live streams, with tools/list as a deterministic delivery barrier."""
+
+    def __init__(self) -> None:
+        self.streams: dict[tuple[type, int | str], tuple[list[dict], Callable]] = {}
+        self.cancelled: set[tuple[type, int | str]] = set()
+        self.pulses = 0
+        self.pending: tuple[list[dict], Callable] | None = None
+
+    def cancel(self, request_id: object) -> None:
+        if type(request_id) not in (int, str):
+            return
+        key = (type(request_id), request_id)
+        if key in self.streams:
+            self.cancelled.add(key)
+            self._finish()
+
+    def _finish(self) -> None:
+        if self.pending is None or not self.cancelled:
+            return
+        messages, emit = self.pending
+        self.pending = None
+        self.pulses = 2
+        if len(self.cancelled) != 1:
+            emit(_error(messages[0]["id"], "both subscriptions were cancelled"))
+            return
+        for key, (frames, send) in self.streams.items():
+            if key not in self.cancelled:
+                for frame in frames[1:]:
+                    send(frame)
+        emit(messages[0])
+
+    def handle(self, message: object, emit: Callable[[dict], None]) -> None:
+        if (
+            isinstance(message, dict)
+            and message.get("method") == "notifications/cancelled"
+        ):
+            params = message.get("params")
+            if message.get("jsonrpc") == "2.0" and isinstance(params, dict):
+                self.cancel(params.get("requestId"))
+            return
+        messages = respond(message, "conforming")
+        if "error" in messages[0]:
+            emit(messages[0])
+            return
+        request_id = message["id"]
+        if message["method"] == "subscriptions/listen":
+            key = (type(request_id), request_id)
+            if key in self.streams or len(self.streams) == 2:
+                emit(_error(request_id, "expected two distinct subscriptions"))
+                return
+            self.streams[key] = (messages, emit)
+            emit(messages[0])
+        elif message["method"] == "tools/list" and self.pulses < 2:
+            if len(self.streams) != 2 or (self.pulses == 0 and self.cancelled):
+                emit(_error(request_id, "both subscriptions must be open"))
+            elif self.pulses == 0:
+                self.pulses = 1
+                for frames, send in reversed(self.streams.values()):
+                    for frame in frames[1:-1]:
+                        send(frame)
+                emit(messages[0])
+            elif self.pending is not None:
+                emit(_error(request_id, "delivery barrier already pending"))
+            else:
+                # The native cancellation can arrive after the barrier request.
+                self.pending = (messages, emit)
+                self._finish()
+        else:
+            emit(messages[0])
+
+
 class ControlledSubscriptionHTTPPeer(
     AbstractContextManager["ControlledSubscriptionHTTPPeer"]
 ):
@@ -154,6 +229,7 @@ class ControlledSubscriptionHTTPPeer(
         self._stop = threading.Event()
         self._first_subscription = True
         self._lock = threading.Lock()
+        self._concurrent = _ConcurrentSubscriptions()
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -185,6 +261,9 @@ class ControlledSubscriptionHTTPPeer(
                     or self.headers.get("MCP-Session-Id") is not None
                 ):
                     self.send_error(400)
+                    return
+                if mode == "concurrent":
+                    self.serve_concurrent(message)
                     return
                 first = False
                 if message.get("method") == "subscriptions/listen":
@@ -243,6 +322,56 @@ class ControlledSubscriptionHTTPPeer(
             def do_GET(self) -> None:  # noqa: N802
                 self.send_error(405)
 
+            def serve_concurrent(self, message: dict) -> None:
+                request_id = message.get("id")
+                if type(request_id) not in (int, str):
+                    self.send_error(400)
+                    return
+                outgoing: queue.Queue[dict] = queue.Queue()
+                with owner._lock:
+                    owner._concurrent.handle(message, outgoing.put)
+                if message.get("method") != "subscriptions/listen":
+                    try:
+                        response = outgoing.get(timeout=5)
+                    except queue.Empty:
+                        self.send_error(504)
+                        return
+                    body = json.dumps(response, separators=(",", ":")).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    try:
+                        self.wfile.write(body)
+                    except OSError:
+                        pass
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                try:
+                    while not owner._stop.is_set():
+                        try:
+                            frame = outgoing.get(timeout=0.05)
+                        except queue.Empty:
+                            frame = None
+                        body = (
+                            b": heartbeat\n\n"
+                            if frame is None
+                            else (
+                                b"data: "
+                                + json.dumps(frame, separators=(",", ":")).encode()
+                                + b"\n\n"
+                            )
+                        )
+                        self.wfile.write(body)
+                        self.wfile.flush()
+                        if frame is not None and "id" in frame:
+                            return
+                except OSError:
+                    with owner._lock:
+                        owner._concurrent.cancel(request_id)
+
             def do_DELETE(self) -> None:  # noqa: N802
                 self.send_error(405)
 
@@ -272,8 +401,17 @@ def main() -> int:
     mode = parser.parse_args().mode
     cancelled = False
     first_id: int | str | None = None
+    concurrent = _ConcurrentSubscriptions()
     for line in sys.stdin:
         request = json.loads(line)
+        if mode == "concurrent":
+            concurrent.handle(
+                request,
+                lambda frame: print(
+                    json.dumps(frame, separators=(",", ":")), flush=True
+                ),
+            )
+            continue
         first = (
             isinstance(request, dict)
             and request.get("method") == "subscriptions/listen"
