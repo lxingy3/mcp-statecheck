@@ -1,0 +1,210 @@
+{
+  "cells": {
+    "python-v2/stdio/cancel": {
+      "client_closed": true,
+      "events": [
+        "ToolsListChanged"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "replacement": {
+        "events": [
+          "ToolsListChanged"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "termination": "graceful"
+      },
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "termination": "local"
+    },
+    "python-v2/stdio/drop": {
+      "client_closed": true,
+      "events": [
+        "ToolsListChanged"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "replacement": {
+        "client_closed": true,
+        "events": [
+          "ToolsListChanged"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "protocol_version": "2026-07-28",
+        "refetched_tools": [],
+        "runtime_version": "3.12.13",
+        "sdk_version": "2.1.1",
+        "termination": "graceful"
+      },
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "termination": "lost"
+    },
+    "python-v2/streamable-http/cancel": {
+      "client_closed": true,
+      "events": [
+        "ToolsListChanged"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "replacement": {
+        "events": [
+          "ToolsListChanged"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "termination": "graceful"
+      },
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "termination": "local"
+    },
+    "python-v2/streamable-http/drop": {
+      "client_closed": true,
+      "events": [
+        "ToolsListChanged"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "replacement": {
+        "client_closed": true,
+        "events": [
+          "ToolsListChanged"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "protocol_version": "2026-07-28",
+        "refetched_tools": [],
+        "runtime_version": "3.12.13",
+        "sdk_version": "2.1.1",
+        "termination": "graceful"
+      },
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "termination": "lost"
+    },
+    "typescript-v2/stdio/cancel": {
+      "client_closed": true,
+      "events": [
+        "notifications/tools/list_changed"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "replacement": {
+        "events": [
+          "notifications/tools/list_changed"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "termination": "graceful"
+      },
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "termination": "local"
+    },
+    "typescript-v2/stdio/drop": {
+      "client_closed": true,
+      "events": [
+        "notifications/tools/list_changed"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "replacement": {
+        "client_closed": true,
+        "events": [
+          "notifications/tools/list_changed"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "protocol_version": "2026-07-28",
+        "refetched_tools": [],
+        "runtime_version": "24.14.1",
+        "sdk_version": "2.0.0",
+        "termination": "graceful"
+      },
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "termination": "remote"
+    },
+    "typescript-v2/streamable-http/cancel": {
+      "client_closed": true,
+      "events": [
+        "notifications/tools/list_changed"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "replacement": {
+        "events": [
+          "notifications/tools/list_changed"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "termination": "graceful"
+      },
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "termination": "local"
+    },
+    "typescript-v2/streamable-http/drop": {
+      "client_closed": true,
+      "events": [
+        "notifications/tools/list_changed"
+      ],
+      "honored_filter": {
+        "toolsListChanged": true
+      },
+      "protocol_version": "2026-07-28",
+      "replacement": {
+        "client_closed": true,
+        "events": [
+          "notifications/tools/list_changed"
+        ],
+        "honored_filter": {
+          "toolsListChanged": true
+        },
+        "protocol_version": "2026-07-28",
+        "refetched_tools": [],
+        "runtime_version": "24.14.1",
+        "sdk_version": "2.0.0",
+        "termination": "graceful"
+      },
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "termination": "remote"
+    }
+  },
+  "milestone": "M6.6",
+  "profile": "sdk-native-subscription-lifecycle",
+  "protocol_version": "2026-07-28",
+  "runs": 2,
+  "schema_version": 1,
+  "status": "passed"
+}

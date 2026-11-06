@@ -55,6 +55,9 @@ jobs:
       - name: Run M6.5 SDK subscription acceptance
         timeout-minutes: 5
         run: uv run --locked --no-dev python -m mcp_statecheck.sdk_subscription_acceptance --check
+      - name: Run M6.6 SDK subscription lifecycle acceptance
+        timeout-minutes: 5
+        run: uv run --locked --no-dev python -m mcp_statecheck.sdk_subscription_acceptance --lifecycle --check
       - name: Run Git application server acceptance
         timeout-minutes: 8
         run: >-

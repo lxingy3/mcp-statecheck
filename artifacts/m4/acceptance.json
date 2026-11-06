@@ -54,6 +54,16 @@
     "sarif"
   ],
   "schema_version": 1,
+  "sdk_subscription_lifecycle": {
+    "cells": 8,
+    "identical_runs": 2,
+    "installs": [
+      "wheel",
+      "sdist"
+    ],
+    "status": "passed",
+    "working_directory_isolated": true
+  },
   "sdk_subscriptions": {
     "cells": 4,
     "identical_runs": 2,

@@ -83,7 +83,12 @@ def respond(message: object, mode: str) -> list[dict[str, Any]]:
             {
                 "jsonrpc": "2.0",
                 "id": request_id,
-                "result": {"resultType": "complete", "tools": []},
+                "result": {
+                    "resultType": "complete",
+                    "tools": [],
+                    "cacheScope": "private",
+                    "ttlMs": 0,
+                },
             }
         ]
     if message.get("method") != "subscriptions/listen":
@@ -131,7 +136,7 @@ def respond(message: object, mode: str) -> list[dict[str, Any]]:
         "id": request_id,
         "result": {"resultType": "complete", "_meta": {SUBSCRIPTION_ID: request_id}},
     }
-    if mode in {"held-cancel", "late-after-cancel", "drop-first"} and request_id == 1:
+    if mode in {"held-cancel", "late-after-cancel", "drop-first"}:
         return [ack, *delivered]
     return [ack, *delivered, finished]
 
@@ -147,6 +152,8 @@ class ControlledSubscriptionHTTPPeer(
         self.closed = False
         self.cancel_seen = threading.Event()
         self._stop = threading.Event()
+        self._first_subscription = True
+        self._lock = threading.Lock()
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -179,7 +186,27 @@ class ControlledSubscriptionHTTPPeer(
                 ):
                     self.send_error(400)
                     return
-                messages = respond(message, mode)
+                first = False
+                if message.get("method") == "subscriptions/listen":
+                    with owner._lock:
+                        first = owner._first_subscription
+                        owner._first_subscription = False
+                active_mode = mode
+                if (
+                    mode in {"held-cancel", "late-after-cancel", "drop-first"}
+                    and not first
+                ):
+                    active_mode = "conforming"
+                messages = respond(message, active_mode)
+                if (
+                    mode == "held-cancel"
+                    and message.get("method") == "subscriptions/listen"
+                    and not first
+                    and not owner.cancel_seen.wait(5)
+                ):
+                    messages = [
+                        _error(message.get("id"), "first SSE stream was not cancelled")
+                    ]
                 if message.get("method") == "subscriptions/listen":
                     body = b"".join(
                         b"data: "
@@ -191,7 +218,7 @@ class ControlledSubscriptionHTTPPeer(
                 else:
                     body = json.dumps(messages[0], separators=(",", ":")).encode()
                     content_type = "application/json"
-                if mode == "held-cancel" and message.get("id") == 1:
+                if mode == "held-cancel" and first:
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
                     self.end_headers()
@@ -244,36 +271,50 @@ def main() -> int:
     parser.add_argument("--mode", choices=MODES, default="conforming")
     mode = parser.parse_args().mode
     cancelled = False
+    first_id: int | str | None = None
     for line in sys.stdin:
         request = json.loads(line)
+        first = (
+            isinstance(request, dict)
+            and request.get("method") == "subscriptions/listen"
+            and first_id is None
+        )
+        if first:
+            first_id = request.get("id")
+        active_mode = mode
+        if mode in {"held-cancel", "late-after-cancel", "drop-first"} and not first:
+            active_mode = "conforming"
         if not isinstance(request, dict):
-            messages = respond(request, mode)
+            messages = respond(request, active_mode)
         elif mode in {"held-cancel", "late-after-cancel"}:
             if request.get("method") == "notifications/cancelled":
                 params = request.get("params")
-                cancelled = isinstance(params, dict) and params.get("requestId") == 1
-                if cancelled and mode == "late-after-cancel":
-                    late = _notice("notifications/tools/list_changed", 1)
+                matched = (
+                    isinstance(params, dict)
+                    and first_id is not None
+                    and type(params.get("requestId")) is type(first_id)
+                    and params.get("requestId") == first_id
+                )
+                cancelled |= matched
+                if matched and mode == "late-after-cancel":
+                    late = _notice("notifications/tools/list_changed", first_id)
                     print(json.dumps(late, separators=(",", ":")), flush=True)
                 continue
             if (
                 request.get("method") == "subscriptions/listen"
-                and request.get("id") == 2
+                and not first
                 and not cancelled
             ):
-                messages = [_error(2, "first subscription was not cancelled")]
+                messages = [
+                    _error(request.get("id"), "first subscription was not cancelled")
+                ]
             else:
-                messages = respond(request, mode)
+                messages = respond(request, active_mode)
         else:
-            messages = respond(request, mode)
+            messages = respond(request, active_mode)
         for message in messages:
             print(json.dumps(message, separators=(",", ":")), flush=True)
-        if (
-            mode == "drop-first"
-            and isinstance(request, dict)
-            and request.get("method") == "subscriptions/listen"
-            and request.get("id") == 1
-        ):
+        if mode == "drop-first" and first:
             break
     return 0
 

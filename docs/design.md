@@ -14,8 +14,8 @@ M6.2 adds a separate Tasks extension wire profile against controlled peers;
 M6.3 adds controlled subscription delivery checks. M6.4 adds a controlled
 cancellation and reconnect lifecycle gate. M6.5 checks native subscription
 delivery and graceful completion in pinned Python and TypeScript SDK clients.
-SDK-native Tasks, subscription cancellation, and other agent protocols remain
-outside scope.
+M6.6 adds native cancellation and explicit recovery after abrupt drops.
+SDK-native Tasks and other agent protocols remain outside scope.
 
 The official MCP conformance framework remains the source for fixed
 specification scenarios. This project focuses on stateful generation,
@@ -367,6 +367,28 @@ and client cleanup. The acceptance report contains four cells from two
 byte-identical runs. This is client interoperability evidence for delivery and
 graceful close, not SDK-native cancellation, reconnect, or arbitrary-server
 conformance.
+
+## M6.6 SDK subscription lifecycle gate
+
+The existing SDK adapters also exercise two lifecycle scenarios per transport.
+For cancellation, Python exits its `listen` context and TypeScript calls
+`McpSubscription.close()`. Each opens a replacement subscription on the same
+client and refetches `tools/list`. The stdio peer requires cancellation of the
+actual first listen ID, preserving its JSON type. The HTTP peer waits for the
+first SSE socket to close before acknowledging a replacement.
+
+For an abrupt drop, the peer sends an acknowledgment and one event without a
+completion response. Python must raise `SubscriptionLost`; TypeScript must
+resolve `closed` to `"remote"`. The adapter closes that client, opens a new
+one, explicitly re-subscribes, receives an event, observes graceful completion,
+and refetches the tool list. The stdio replacement starts a fresh conforming
+peer; HTTP reconnects to the same listener. SDK-generated IDs are opaque to
+the peer, and a new HTTP client may reuse an earlier ID.
+
+Eight cells produce identical reports across two runs and from clean wheel
+and sdist installations. The original M6.5 report remains unchanged. These
+checks do not cover automatic retry, replay of missed events, concurrent
+subscriptions, SDK servers, or arbitrary-target conformance.
 
 ## v0.1 release gate
 

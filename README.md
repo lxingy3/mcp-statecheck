@@ -72,6 +72,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | M6.3 subscription wire profile | Three controlled delivery defects across both transports, with per-subscription acknowledgement and filter checks, minimized traces, 10-run replay, and eight conforming baselines |
 | M6.4 subscription lifecycle | Controlled stdio cancellation, HTTP SSE closure, abrupt disconnect and re-subscription on both transports, plus a ten-run late-delivery fault |
 | M6.5 SDK subscriptions | Pinned Python and TypeScript clients exercise their native `listen` APIs over both transports, checking delivery and graceful completion in four cells |
+| M6.6 SDK subscription lifecycle | Eight native-client cells cover cancellation, abrupt drops, explicit re-subscription, and tool-list refetch across both transports |
 
 ```mermaid
 flowchart LR
@@ -331,6 +332,23 @@ contains four cells from two byte-identical runs. It validates SDK client
 behavior against package-controlled peers; SDK-native cancellation, abrupt
 disconnect recovery, and arbitrary servers remain outside this gate.
 
+M6.6 extends those pinned clients with native cancellation and abrupt-drop
+recovery. Cancellation opens a replacement subscription on the same client.
+After a drop, the adapter creates a new client and explicitly subscribes again;
+both paths receive a fresh event and refetch the tool list.
+
+```console
+uv run python -m mcp_statecheck.sdk_subscription_acceptance --lifecycle --check
+```
+
+The [M6.6 acceptance report](artifacts/m6-sdk-subscription-lifecycle/acceptance.json)
+contains eight cells from two byte-identical runs. The controlled stdio peer
+requires a cancellation matching the actual subscription ID; the HTTP peer
+requires closure of the first SSE stream before accepting its replacement.
+Python reports `SubscriptionLost` on a drop, while TypeScript resolves
+`closed` to `"remote"`. This gate covers explicit client recovery against
+controlled peers, not automatic retry, event replay, or arbitrary servers.
+
 ## Reports and CI integration
 
 Saved traces are the single JSON source of truth. Reports validate schema v1,
@@ -489,7 +507,7 @@ execution boundaries.
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
-| M6 | In progress (M6.5 complete) | Modern SDK baseline, generated Tasks, controlled subscription delivery/lifecycle, and native SDK delivery/graceful-close checks; SDK-native cancellation and arbitrary-server deep coverage remain planned |
+| M6 | In progress (M6.6 complete) | Modern SDK baseline, generated Tasks, controlled subscription delivery/lifecycle, and native SDK delivery/cancellation/recovery; SDK-native Tasks and arbitrary-server deep coverage remain planned |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -526,6 +544,7 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [Subscription profile notes](https://github.com/lxingy3/mcp-statecheck/blob/main/docs/research/2026-09-27-subscriptions-profile.md)
 - [M6.4 subscription lifecycle acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-subscription-lifecycle/acceptance.json)
 - [M6.5 SDK subscription acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-sdk-subscriptions/acceptance.json)
+- [M6.6 SDK subscription lifecycle acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-sdk-subscription-lifecycle/acceptance.json)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License
