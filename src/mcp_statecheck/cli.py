@@ -16,6 +16,7 @@ import anyio
 import httpx
 
 from . import __version__
+from .catalog import compare_catalogs, tool_list_problem
 from .execution import (
     ExecutionProtocolError,
     ExecutionResult,
@@ -23,7 +24,13 @@ from .execution import (
     execute_stdio,
 )
 from .invariants import Failure, failure_signature
-from .model import PROTOCOL_VERSIONS, Action, ActionKind, JsonValue
+from .model import (
+    MODERN_PROTOCOL_VERSIONS,
+    PROTOCOL_VERSIONS,
+    Action,
+    ActionKind,
+    JsonValue,
+)
 from .reports import (
     ReportError,
     artifact_status,
@@ -89,7 +96,7 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument(
         "--protocol-version",
         "--protocol",
-        choices=PROTOCOL_VERSIONS,
+        choices=(*PROTOCOL_VERSIONS, *MODERN_PROTOCOL_VERSIONS),
         default=DEFAULT_PROTOCOL_VERSION,
     )
     check.add_argument("--timeout", type=_positive_float, default=5.0)
@@ -104,6 +111,12 @@ def _parser() -> argparse.ArgumentParser:
     report.add_argument("artifact", type=Path)
     report.add_argument("--json", type=Path, metavar="PATH")
     _add_report_outputs(report)
+
+    compare = subparsers.add_parser(
+        "compare", help="compare tool schemas from two successful checks offline"
+    )
+    compare.add_argument("baseline", type=Path)
+    compare.add_argument("current", type=Path)
 
     matrix = subparsers.add_parser(
         "matrix",
@@ -184,6 +197,30 @@ def _add_report_outputs(parser: argparse.ArgumentParser) -> None:
 
 
 def _smoke_actions(protocol_version: str) -> tuple[Action, ...]:
+    if protocol_version in MODERN_PROTOCOL_VERSIONS:
+        return (
+            Action(
+                "discover",
+                ActionKind.DISCOVER,
+                mcp_request_id=1,
+                protocol_version=protocol_version,
+            ),
+            Action(
+                "discover-response", ActionKind.RESPONSE, target_action_id="discover"
+            ),
+            Action(
+                "tools-list",
+                ActionKind.REQUEST,
+                mcp_request_id=2,
+                method="tools/list",
+                protocol_version=protocol_version,
+            ),
+            Action(
+                "tools-list-response",
+                ActionKind.RESPONSE,
+                target_action_id="tools-list",
+            ),
+        )
     return (
         Action(
             "initialize",
@@ -291,14 +328,28 @@ async def _execute_check(
     target: tuple[str, ...] | str,
     headers: Mapping[str, str],
     timeout: float,
+    protocol_version: str,
 ) -> ExecutionResult:
+    def continue_after_discovery(response: Mapping[str, JsonValue]) -> bool:
+        if response["target_action_id"] != "discover":
+            return True
+        capabilities, _ = _discover_capabilities(response, protocol_version)
+        return capabilities is not None and "tools" in capabilities
+
+    options = (
+        {"continue_after_response": continue_after_discovery}
+        if protocol_version in MODERN_PROTOCOL_VERSIONS
+        else {}
+    )
     if transport == "stdio":
         if not isinstance(target, tuple):
             raise AssertionError("stdio target must be an argv tuple")
-        return await execute_stdio(actions, target, timeout=timeout)
+        return await execute_stdio(actions, target, timeout=timeout, **options)
     if not isinstance(target, str):
         raise AssertionError("HTTP target must be a URL")
-    return await execute_http(actions, target, headers=headers, timeout=timeout)
+    return await execute_http(
+        actions, target, headers=headers, timeout=timeout, **options
+    )
 
 
 def _spec(protocol_version: str, location: str) -> str:
@@ -360,11 +411,13 @@ def _invalid_result(
 ) -> Failure:
     action_id = {
         "initialize": "initialize",
+        "server/discover": "discover",
         "ping": "ping",
         "tools/list": "tools-list",
     }[method]
     location = {
         "initialize": "basic/lifecycle#initialization",
+        "server/discover": "server/discover",
         "ping": "basic/utilities/ping",
         "tools/list": "server/tools#listing-tools",
     }[method]
@@ -380,6 +433,32 @@ def _invalid_result(
         trigger_action_id=action_id,
         evidence=evidence,
     )
+
+
+def _discover_capabilities(
+    response: Mapping[str, object], protocol_version: str
+) -> tuple[Mapping[str, object] | None, Failure | None]:
+    payload = response.get("payload")
+    if response.get("outcome") != "success":
+        reason = "error_response"
+    elif not isinstance(payload, Mapping) or payload.get("resultType") != "complete":
+        reason = "invalid_completion"
+    else:
+        versions = payload.get("supportedVersions")
+        capabilities = payload.get("capabilities")
+        if not isinstance(versions, list) or any(
+            not isinstance(version, str) for version in versions
+        ):
+            reason = "invalid_supported_versions"
+        elif protocol_version not in versions:
+            reason = "unsupported_protocol_version"
+        elif not isinstance(capabilities, Mapping) or (
+            "tools" in capabilities and not isinstance(capabilities["tools"], Mapping)
+        ):
+            reason = "invalid_capabilities"
+        else:
+            return capabilities, None
+    return None, _invalid_result("server/discover", reason, protocol_version)
 
 
 def _evaluate(
@@ -405,6 +484,21 @@ def _evaluate(
             status = event.get("status")
             label = str(status) if type(status) is int else "invalid"
             return None, f"HTTP {label} prevented the check"
+
+    if protocol_version in MODERN_PROTOCOL_VERSIONS:
+        discover, failure = _response(
+            result.events,
+            "discover",
+            method="server/discover",
+            protocol_version=protocol_version,
+        )
+        if failure is not None:
+            return failure, None
+        assert discover is not None
+        capabilities, failure = _discover_capabilities(discover, protocol_version)
+        if capabilities is None or "tools" not in capabilities:
+            return failure, None
+        return _evaluate_tools(result.events, capabilities, protocol_version), None
 
     initialize, failure = _response(
         result.events,
@@ -456,14 +550,22 @@ def _evaluate(
     if ping.get("outcome") != "success" or not isinstance(ping.get("payload"), Mapping):
         return _invalid_result("ping", "invalid_response", protocol_version), None
 
+    return _evaluate_tools(result.events, capabilities, protocol_version), None
+
+
+def _evaluate_tools(
+    events: Sequence[Mapping[str, object]],
+    capabilities: Mapping[str, object],
+    protocol_version: str,
+) -> Failure | None:
     tools_list, failure = _response(
-        result.events,
+        events,
         "tools-list",
         method="tools/list",
         protocol_version=protocol_version,
     )
     if failure is not None:
-        return failure, None
+        return failure
     assert tools_list is not None
     if tools_list.get("outcome") != "success":
         if "tools" in capabilities:
@@ -471,42 +573,17 @@ def _evaluate(
                 "tools/list",
                 "error_despite_declared_capability",
                 protocol_version,
-            ), None
-        return None, None
+            )
+        return None
 
     tools_payload = tools_list.get("payload")
-    tools = tools_payload.get("tools") if isinstance(tools_payload, Mapping) else None
-    if not isinstance(tools, list):
-        return _invalid_result(
-            "tools/list", "invalid_tools_array", protocol_version
-        ), None
-    for tool in tools:
-        if (
-            not isinstance(tool, Mapping)
-            or not isinstance(tool.get("name"), str)
-            or not tool.get("name")
-            or not isinstance(tool.get("inputSchema"), Mapping)
-        ):
-            return _invalid_result(
-                "tools/list",
-                "invalid_tool_definition",
-                protocol_version,
-            ), None
-        if "outputSchema" in tool and not isinstance(tool["outputSchema"], Mapping):
-            return _invalid_result(
-                "tools/list",
-                "invalid_output_schema",
-                protocol_version,
-            ), None
-    if (
-        isinstance(tools_payload, Mapping)
-        and "nextCursor" in tools_payload
-        and not isinstance(tools_payload["nextCursor"], str)
+    if protocol_version in MODERN_PROTOCOL_VERSIONS and (
+        not isinstance(tools_payload, Mapping)
+        or tools_payload.get("resultType") != "complete"
     ):
-        return _invalid_result(
-            "tools/list", "invalid_next_cursor", protocol_version
-        ), None
-    return None, None
+        return _invalid_result("tools/list", "invalid_completion", protocol_version)
+    reason = tool_list_problem(tools_payload)
+    return _invalid_result("tools/list", reason, protocol_version) if reason else None
 
 
 def _safe_message(
@@ -649,6 +726,7 @@ def _run_check(
             target,
             headers,
             args.timeout,
+            args.protocol_version,
         )
     except (ExecutionProtocolError, StdioProtocolError, HTTPProtocolError) as exc:
         message = _safe_message(exc, secret_values=secrets)
@@ -720,6 +798,19 @@ def _run_check(
         protocol_version=args.protocol_version,
         transport=transport,
     )
+    if args.protocol_version in MODERN_PROTOCOL_VERSIONS:
+        discover = next(
+            (
+                event
+                for event in result.events
+                if event.get("target_action_id") == "discover"
+            ),
+            None,
+        )
+        if discover is not None and discover.get("kind") == "response":
+            capabilities, _ = _discover_capabilities(discover, args.protocol_version)
+            if capabilities is None or "tools" not in capabilities:
+                actions = actions[:2]
     events: list[Mapping[str, object]] = list(result.events)
     if infrastructure_error is not None:
         events.append(
@@ -810,6 +901,18 @@ def _run_report(
         "failure": 1,
         "infrastructure_error": 2,
     }[artifact_status(artifact)]
+
+
+def _run_compare(args: argparse.Namespace) -> int:
+    try:
+        baseline = load_artifact(args.baseline, environment=os.environ)
+        current = load_artifact(args.current, environment=os.environ)
+        diff = compare_catalogs(baseline, current)
+    except ReportError as exc:
+        print(f"mcp-statecheck: {_safe_message(exc)}", file=sys.stderr)
+        return 2
+    print(json.dumps(diff, indent=2, sort_keys=True))
+    return 1 if diff["status"] == "changed" else 0
 
 
 def _run_matrix(args: argparse.Namespace) -> int:
@@ -909,6 +1012,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_check(args, parser)
     if args.subcommand == "report":
         return _run_report(args, parser)
+    if args.subcommand == "compare":
+        return _run_compare(args)
     if args.subcommand == "matrix":
         return _run_matrix(args)
     if args.subcommand == "replay":

@@ -50,6 +50,10 @@ jobs:
         run: >-
           uv run python scripts/run_m4_acceptance.py
           --output "${{ runner.temp }}/m4/acceptance.json"
+          --dist-output "${{ runner.temp }}/m4/dist"
+      - name: Validate distribution metadata
+        if: runner.os == 'Linux'
+        run: uvx --from twine==7.0.0 twine check --strict "${{ runner.temp }}/m4/dist/*"
       - name: Run M6.1 modern stateless acceptance
         timeout-minutes: 5
         run: uv run python scripts/run_m6_modern_acceptance.py --check

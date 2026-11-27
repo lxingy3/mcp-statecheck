@@ -8,7 +8,7 @@
   "milestone": "M5",
   "protocol_version": "2025-11-25",
   "runtime": {
-    "mcp_statecheck": "0.1.0",
+    "mcp_statecheck": "0.2.0",
     "python": "3.12.13",
     "uv": "uv 0.11.28 (ebf0f43d7 2026-07-07 x86_64-pc-windows-msvc)"
   },

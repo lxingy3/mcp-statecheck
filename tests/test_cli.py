@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import xml.etree.ElementTree as ET
+from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -631,7 +632,7 @@ def test_version_uses_package_version(capsys: pytest.CaptureFixture[str]) -> Non
     with pytest.raises(SystemExit) as raised:
         cli.main(["--version"])
     assert raised.value.code == 0
-    assert capsys.readouterr().out == "mcp-statecheck 0.1.0\n"
+    assert capsys.readouterr().out == f"mcp-statecheck {version('mcp-statecheck')}\n"
 
 
 def test_replay_returns_failure_for_a_stable_reproducer(

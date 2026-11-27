@@ -17,7 +17,7 @@
     "passed": 10
   },
   "runtime": {
-    "mcp_statecheck": "0.1.0",
+    "mcp_statecheck": "0.2.0",
     "node": "24.14.1",
     "npm": "11.11.0",
     "python": "3.12.13"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from . import __version__
@@ -36,7 +36,11 @@ class ExecutionResult:
 
 
 async def execute_stdio(
-    actions: Sequence[Action], command: Sequence[str], *, timeout: float = 5.0
+    actions: Sequence[Action],
+    command: Sequence[str],
+    *,
+    timeout: float = 5.0,
+    continue_after_response: Callable[[Mapping[str, JsonValue]], bool] | None = None,
 ) -> ExecutionResult:
     """Execute initialize and request actions against one stdio peer."""
 
@@ -95,6 +99,10 @@ async def execute_stdio(
                     )
                 ):
                     break
+                if continue_after_response is not None and not continue_after_response(
+                    event
+                ):
+                    break
                 continue
             if message is None:
                 raise AssertionError("outbound action requires a wire message")
@@ -115,6 +123,7 @@ async def execute_http(
     *,
     headers: Mapping[str, str] | None = None,
     timeout: float = 5.0,
+    continue_after_response: Callable[[Mapping[str, JsonValue]], bool] | None = None,
 ) -> ExecutionResult:
     """Execute canonical actions against one Streamable HTTP endpoint."""
 
@@ -143,7 +152,7 @@ async def execute_http(
         action_ids.add(action.action_id)
 
     events: list[dict[str, JsonValue]] = []
-    available_responses: list[str | None] = []
+    available_responses: list[dict[str, JsonValue]] = []
     transport = StreamableHTTPTransport(url, headers=headers, timeout=timeout)
     async with transport:
 
@@ -162,14 +171,18 @@ async def execute_http(
                     raise ExecutionProtocolError(
                         "response barrier has no completed HTTP request"
                     )
-                target_action_id = available_responses.pop(0)
+                response = available_responses.pop(0)
                 if (
                     action.target_action_id is not None
-                    and target_action_id != action.target_action_id
+                    and response["target_action_id"] != action.target_action_id
                 ):
                     raise ExecutionProtocolError(
                         "response barrier received a different HTTP request"
                     )
+                if continue_after_response is not None and not continue_after_response(
+                    response
+                ):
+                    break
                 continue
             if action.kind in (
                 ActionKind.DISCOVER,
@@ -207,7 +220,7 @@ async def execute_http(
                         raise ExecutionProtocolError(
                             "HTTP response is missing or has a mismatched ID"
                         )
-                    available_responses.append(responses[-1]["target_action_id"])
+                    available_responses.append(responses[-1])
                     if action.kind is ActionKind.INITIALIZE and responses:
                         if responses[-1]["outcome"] != "success":
                             break

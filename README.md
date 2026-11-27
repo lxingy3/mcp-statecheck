@@ -37,6 +37,9 @@ mcp-statecheck --version
 mcp-statecheck 0.1.0
 ```
 
+The modern check and catalog comparison below are part of the 0.2.0 source
+tree. Use the checkout commands to try them before the next PyPI release.
+
 The same quick profile can target only a server you explicitly name:
 
 ```console
@@ -51,6 +54,41 @@ redacted before traces or reports are stored. The bounded quick profile
 initializes one session, sends `ping`, probes `tools/list` without calling any
 tool, verifies response shapes, and confirms transport cleanup.
 
+### Check a modern server
+
+Select the revision explicitly for an MCP `2026-07-28` server:
+
+```console
+uv run mcp-statecheck check --protocol-version 2026-07-28 --url http://127.0.0.1:3000/mcp --output current.json --html current.html
+```
+
+The same option works with `--stdio -- COMMAND`. The check uses
+`server/discover` to verify the revision and reads the first page of
+`tools/list` if the server advertises tools. It closes the connection without
+invoking a tool. The default still selects the legacy `2025-11-25` sequence.
+
+### Compare two versions of a server
+
+Run `check` against the old and new server builds with the same authorization
+scope, protocol revision, and transport. Save the JSON artifacts as
+`baseline.json` and `current.json`, then run:
+
+```console
+uv run mcp-statecheck compare baseline.json current.json
+```
+
+`compare` reads the two files locally. It prints a JSON object with added and
+removed tool names, changed input or output schema fields, and whether the
+server's tools capability appeared or disappeared. The command exits 0 for a
+match, 1 for a change, and 2 if it cannot compare the inputs. It accepts
+successful checks with the same negotiated revision and transport and rejects
+partial catalogs with a pagination cursor.
+
+The comparison ignores tool descriptions, tool order, and JSON object key
+order. It compares schema structure as saved in the redacted artifacts. For
+example, rearranging an enum array can register as a change even if both
+schemas accept the same inputs.
+
 ## What works today
 
 | Area | Current implementation |
@@ -60,7 +98,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | stdio | JSON Lines subprocess transport with deadlines, bounded stderr, and child cleanup |
 | Streamable HTTP | Session headers, JSON and SSE responses, reconnect cursors, status handling, and cleanup |
 | Traces | Versioned JSON, deterministic writes, recursive secret redaction, and stable session aliases |
-| Installable CLI | Explicit-target checks, allowlisted replay, offline reports, and separate locked legacy and modern SDK matrices with `0`/`1`/`2` exit codes |
+| Installable CLI | Explicit-target checks for legacy and modern servers, offline tool catalog comparison, allowlisted replay, reports, and locked SDK matrices |
 | Reports | Deterministic JSON, JUnit XML, SARIF 2.1.0, and a script-free single-file HTML trace explorer |
 | Automation | A JSON-argv composite Action plus scheduled macOS runs of the full SDK matrix and clean-package acceptance |
 | M1 controlled peers | Five original controlled scenarios exercised over real stdio or localhost HTTP connections |
@@ -526,6 +564,7 @@ execution boundaries.
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
 | M6 | In progress (M6.7 complete) | Modern SDK baseline, generated Tasks, controlled subscription delivery/lifecycle, and native SDK delivery/cancellation/recovery/concurrency; SDK-native Tasks and arbitrary-server deep coverage remain planned |
+| 0.2.0 | In review | Modern quick checks, offline catalog comparison, and a build-only release workflow with a separate publish input |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).

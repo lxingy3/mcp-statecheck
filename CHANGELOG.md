@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added `check --protocol-version 2026-07-28` over stdio and Streamable HTTP.
+  Modern checks discover the server and list tools only when advertised.
+- Added offline `compare` for successful checks. It reports tools added or
+  removed, input and output schema changes, and changes to tool availability.
+- Added clean wheel and sdist coverage for modern checks and catalog
+  comparison. The release workflow can build and validate packages without
+  publishing them.
 - Added eight concurrent native SDK subscription cells covering two distinct
   filters, both cancellation orders, and continued delivery to the surviving
   subscription, including CI and clean wheel/sdist acceptance.
