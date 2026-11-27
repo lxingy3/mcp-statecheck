@@ -29,7 +29,7 @@ DEFAULT_OUTPUT = Path("artifacts/m4/acceptance.json")
 PYTHON_VERSION = "3.12.13"
 PROTOCOL_VERSION = "2025-11-25"
 MODERN_PROTOCOL = "2026-07-28"
-MODERN_METHODS = ["server/discover", "tools/list"]
+MODERN_METHODS = ["server/discover", *["tools/list"] * 3]
 TIMEOUTS = {
     "build": 180,
     "venv": 120,
@@ -343,7 +343,7 @@ def _validate_outputs(
         if isinstance(event, dict) and event.get("kind") == "response"
     }
     expected_targets = (
-        {"discover", "tools-list"}
+        {"discover", "tools-list", "tools-list-page-2", "tools-list-page-3"}
         if protocol_version == MODERN_PROTOCOL
         else {"initialize", "ping", "tools-list"}
     )
@@ -691,7 +691,7 @@ def _installed_modern_check(
         "-m",
         "mcp_statecheck._controlled_peer",
         "--mode",
-        "sdk-modern-smoke",
+        "sdk-modern-paged",
         "--protocol-version",
         MODERN_PROTOCOL,
     ]
@@ -700,7 +700,7 @@ def _installed_modern_check(
     observed = _json_object(report, "modern stdio peer report")
     if observed.get("methods") != MODERN_METHODS or observed.get(
         "request_meta_valid"
-    ) != [True, True]:
+    ) != [True] * len(MODERN_METHODS):
         raise AcceptanceError(
             "modern stdio peer did not observe the discovery sequence"
         )
@@ -1324,6 +1324,7 @@ def _accept(
                 "installs": ["wheel", "sdist"],
                 "transports": ["stdio", "streamable-http"],
                 "matching_catalogs": True,
+                "tool_pages_per_check": 3,
                 "status": "passed",
             },
             "tasks_replay": {

@@ -33,6 +33,7 @@
     "matching_catalogs": true,
     "protocol_version": "2026-07-28",
     "status": "passed",
+    "tool_pages_per_check": 3,
     "transports": [
       "stdio",
       "streamable-http"

@@ -2,8 +2,12 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-27
+
 - Added `check --protocol-version 2026-07-28` over stdio and Streamable HTTP.
   Modern checks discover the server and list tools only when advertised.
+- Follow `tools/list` cursors in legacy and modern checks. Store page boundaries
+  with local cursor aliases so offline comparisons can verify completeness.
 - Added offline `compare` for successful checks. It reports tools added or
   removed, input and output schema changes, and changes to tool availability.
 - Added clean wheel and sdist coverage for modern checks and catalog

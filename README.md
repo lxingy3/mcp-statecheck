@@ -12,10 +12,9 @@ cancel one, reconnect an SSE stream, or recover from an expired session.
 wire behavior as deterministic, redacted traces.
 
 > [!NOTE]
-> Version 0.1.0 provides an installable quick-check CLI, deterministic replay
-> of package-controlled failures, offline reports, a package-owned SDK matrix,
-> a composite Action, and cross-platform acceptance. Arbitrary-target replay
-> and the `deep` profile remain intentionally outside this release.
+> Version 0.2.0 adds modern quick checks and offline comparison of tool
+> catalogs. See the [release notes](docs/releases/v0.2.0.md) for the upgrade
+> details.
 
 ## Quickstart
 
@@ -32,13 +31,10 @@ Check passed: wrote artifacts/quickstart.json
 The released CLI can also be installed without a checkout:
 
 ```console
-uv tool install mcp-statecheck==0.1.0
+uv tool install mcp-statecheck==0.2.0
 mcp-statecheck --version
-mcp-statecheck 0.1.0
+mcp-statecheck 0.2.0
 ```
-
-The modern check and catalog comparison below are part of the 0.2.0 source
-tree. Use the checkout commands to try them before the next PyPI release.
 
 The same quick profile can target only a server you explicitly name:
 
@@ -63,9 +59,11 @@ uv run mcp-statecheck check --protocol-version 2026-07-28 --url http://127.0.0.1
 ```
 
 The same option works with `--stdio -- COMMAND`. The check uses
-`server/discover` to verify the revision and reads the first page of
-`tools/list` if the server advertises tools. It closes the connection without
-invoking a tool. The default still selects the legacy `2025-11-25` sequence.
+`server/discover` to verify the revision and lists tools if the server
+advertises them. The default still selects the legacy `2025-11-25` sequence.
+Both checks follow `tools/list` cursors on the same connection without
+invoking tools. The page limit defaults to 100 and can be set with
+`--max-tool-pages`. Reaching the limit before the last page exits 2.
 
 ### Compare two versions of a server
 
@@ -81,8 +79,9 @@ uv run mcp-statecheck compare baseline.json current.json
 removed tool names, changed input or output schema fields, and whether the
 server's tools capability appeared or disappeared. The command exits 0 for a
 match, 1 for a change, and 2 if it cannot compare the inputs. It accepts
-successful checks with the same negotiated revision and transport and rejects
-partial catalogs with a pagination cursor.
+successful checks with the same negotiated revision and transport. A
+paginated catalog must contain each page in order through the end of the
+cursor chain. Rerun checks whose saved reports stop before the last page.
 
 The comparison ignores tool descriptions, tool order, and JSON object key
 order. It compares schema structure as saved in the redacted artifacts. For
@@ -423,7 +422,7 @@ The repository-local composite Action accepts a JSON array rather than a shell
 command string:
 
 ```yaml
-- uses: lxingy3/mcp-statecheck@v0.1.0
+- uses: lxingy3/mcp-statecheck@v0.2.0
   env:
     MCP_TOKEN: ${{ secrets.MCP_TOKEN }}
   with:
@@ -564,7 +563,7 @@ execution boundaries.
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
 | M6 | In progress (M6.7 complete) | Modern SDK baseline, generated Tasks, controlled subscription delivery/lifecycle, and native SDK delivery/cancellation/recovery/concurrency; SDK-native Tasks and arbitrary-server deep coverage remain planned |
-| 0.2.0 | In review | Modern quick checks, offline catalog comparison, and a build-only release workflow with a separate publish input |
+| 0.2.0 | Complete | Modern quick checks, catalog pagination and comparison, and package validation before publishing |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).

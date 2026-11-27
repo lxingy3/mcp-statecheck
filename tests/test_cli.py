@@ -103,6 +103,7 @@ def test_stdio_check_runs_exact_smoke_sequence_and_writes_reports(
         command: tuple[str, ...],
         *,
         timeout: float,
+        after_response=None,
     ) -> ExecutionResult:
         _assert_actions(actions)
         assert command == ("python", "server.py", "--flag")
@@ -169,6 +170,7 @@ def test_http_check_reads_header_from_environment_without_persisting_it(
         *,
         headers: dict[str, str],
         timeout: float,
+        after_response=None,
     ) -> ExecutionResult:
         _assert_actions(actions)
         assert url == "https://example.test/mcp"

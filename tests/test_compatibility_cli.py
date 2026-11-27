@@ -197,7 +197,7 @@ def test_compare_names_schema_fields_and_ignores_catalog_order_and_descriptions(
 @pytest.mark.parametrize(
     ("current", "message"),
     [
-        (_legacy_trace("2025-11-25", [], nextCursor="next"), "first page"),
+        (_legacy_trace("2025-11-25", [], nextCursor="next"), "incomplete tool catalog"),
         (_legacy_trace("2025-06-18", []), "different negotiated protocol versions"),
         (
             _legacy_trace("2025-11-25", [{"name": "echo", "inputSchema": {}}] * 2),
