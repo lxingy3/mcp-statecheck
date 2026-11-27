@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = Path("artifacts/m4/acceptance.json")
 PYTHON_VERSION = "3.12.13"
 PROTOCOL_VERSION = "2025-11-25"
+MODERN_PROTOCOL = "2026-07-28"
+MODERN_METHODS = ["server/discover", *["tools/list"] * 3]
 TIMEOUTS = {
     "build": 180,
     "venv": 120,
@@ -315,11 +317,12 @@ def _validate_outputs(
     *,
     transport: str,
     cleanup: dict[str, object],
+    protocol_version: str = PROTOCOL_VERSION,
 ) -> None:
     artifact = _json_object(artifact_path, "JSON report")
     expected_artifact = {
         "schema_version": 1,
-        "protocol_version": PROTOCOL_VERSION,
+        "protocol_version": protocol_version,
         "adapter": "wire",
         "sdk_version": "none",
         "transport": transport,
@@ -339,7 +342,12 @@ def _validate_outputs(
         for event in artifact.get("normalized_events", ())
         if isinstance(event, dict) and event.get("kind") == "response"
     }
-    if response_targets != {"initialize", "ping", "tools-list"}:
+    expected_targets = (
+        {"discover", "tools-list", "tools-list-page-2", "tools-list-page-3"}
+        if protocol_version == MODERN_PROTOCOL
+        else {"initialize", "ping", "tools-list"}
+    )
+    if response_targets != expected_targets:
         raise AcceptanceError("JSON report is missing smoke-check responses")
 
     try:
@@ -627,6 +635,98 @@ def _atomic_write(path: Path, value: Mapping[str, object]) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def _installed_modern_check(
+    kind: str,
+    python: Path,
+    console: Path,
+    work: Path,
+    environment: Mapping[str, str],
+    package_version: str,
+) -> dict[str, Path]:
+    def check(transport: str, target: Sequence[str | Path]) -> Path:
+        path = work / f"modern-{kind}-{transport}.json"
+        junit = path.with_suffix(".xml")
+        sarif = path.with_suffix(".sarif")
+        html = path.with_suffix(".html")
+        _run(
+            [
+                console,
+                "check",
+                "--protocol-version",
+                MODERN_PROTOCOL,
+                "--output",
+                path,
+                "--junit",
+                junit,
+                "--sarif",
+                sarif,
+                "--html",
+                html,
+                *target,
+            ],
+            cwd=work,
+            environment=environment,
+            timeout=TIMEOUTS["check"],
+            label=f"clean {kind} modern {transport} check",
+        )
+        _validate_outputs(
+            path,
+            junit,
+            sarif,
+            html,
+            package_version,
+            transport=transport,
+            cleanup={"server_reaped": True, "server_returncode": 0}
+            if transport == "stdio"
+            else {"client_closed": True},
+            protocol_version=MODERN_PROTOCOL,
+        )
+        return path
+
+    peer = [
+        python,
+        "-I",
+        "-m",
+        "mcp_statecheck._controlled_peer",
+        "--mode",
+        "sdk-modern-paged",
+        "--protocol-version",
+        MODERN_PROTOCOL,
+    ]
+    report = work / f"modern-{kind}-stdio-peer.json"
+    stdio = check("stdio", ["--stdio", "--", *peer, "--stdio", "--report", report])
+    observed = _json_object(report, "modern stdio peer report")
+    if observed.get("methods") != MODERN_METHODS or observed.get(
+        "request_meta_valid"
+    ) != [True] * len(MODERN_METHODS):
+        raise AcceptanceError(
+            "modern stdio peer did not observe the discovery sequence"
+        )
+
+    ready = work / f"modern-{kind}-http-ready.json"
+    report = work / f"modern-{kind}-http-peer.json"
+    process = _start_http_peer(
+        [*peer, "--http", "--ready", ready, "--report", report],
+        cwd=work,
+        environment=environment,
+    )
+    pid = None
+    try:
+        url, host, port, pid = _wait_for_http_peer(ready, process)
+        http = check("streamable-http", ["--url", url])
+    finally:
+        _finish_http_peer(process, peer_pid=pid, cwd=work, environment=environment)
+    observed = _json_object(report, "modern HTTP peer report")
+    if (
+        observed.get("methods") != MODERN_METHODS
+        or observed.get("delete_count") != 0
+        or observed.get("listener_closed") is not True
+        or _listener_accepts(host, port)
+    ):
+        raise AcceptanceError("modern HTTP peer did not observe stateless cleanup")
+    return {"stdio": stdio, "streamable-http": http}
 
 
 def _accept(
@@ -1085,6 +1185,38 @@ def _accept(
                 f"{http_check.returncode}"
             )
 
+        modern_checks = {
+            kind: _installed_modern_check(
+                kind, python, console, work, environment, package_version
+            )
+            for kind, (python, console) in installs.items()
+        }
+        for kind, (_, console) in installs.items():
+            for transport in ("stdio", "streamable-http"):
+                compared = _run(
+                    [
+                        console,
+                        "compare",
+                        modern_checks["wheel"][transport],
+                        modern_checks["sdist"][transport],
+                    ],
+                    cwd=work,
+                    environment=environment,
+                    timeout=TIMEOUTS["version"],
+                    label=f"clean {kind} {transport} catalog comparison",
+                )
+                if json.loads(compared.stdout) != {
+                    "schema_version": 1,
+                    "protocol_version": MODERN_PROTOCOL,
+                    "transport": transport,
+                    "added": [],
+                    "removed": [],
+                    "changed": {},
+                    "tools_capability_changed": False,
+                    "status": "match",
+                }:
+                    raise AcceptanceError("installed catalog comparison did not match")
+
         consumer = work / "empty-consumer"
         consumer.mkdir()
         matrix_output = work / "matrix-output"
@@ -1187,6 +1319,14 @@ def _accept(
                 "wheel_executed": True,
             },
             "pythonpath_cleared": True,
+            "modern_checks": {
+                "protocol_version": MODERN_PROTOCOL,
+                "installs": ["wheel", "sdist"],
+                "transports": ["stdio", "streamable-http"],
+                "matching_catalogs": True,
+                "tool_pages_per_check": 3,
+                "status": "passed",
+            },
             "tasks_replay": {
                 "attempts_per_cell": 10,
                 "cells_per_install": 6,
@@ -1295,7 +1435,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "and Streamable HTTP checks, five installed replays, 16 installed "
             "legacy matrix cells, four installed modern matrix cells, twelve installed Tasks and twelve "
             "subscription replays, two subscription lifecycle and two SDK "
-            "subscription delivery/lifecycle/concurrency installations, and four "
+            "subscription delivery/lifecycle/concurrency installations, modern quick checks "
+            "and catalog comparison from both packages, and four "
             "report formats per transport; "
             f"wrote {args.output}"
         )

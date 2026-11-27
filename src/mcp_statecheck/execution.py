@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections import deque
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from . import __version__
@@ -35,26 +36,36 @@ class ExecutionResult:
     cleanup: dict[str, JsonValue] = field(default_factory=dict)
 
 
-async def execute_stdio(
-    actions: Sequence[Action], command: Sequence[str], *, timeout: float = 5.0
-) -> ExecutionResult:
-    """Execute initialize and request actions against one stdio peer."""
+type ResponseActions = Callable[[Mapping[str, JsonValue]], Sequence[Action] | None]
 
-    prepared: list[tuple[Action, dict[str, JsonValue] | None]] = []
-    action_ids: set[str] = set()
-    for action in actions:
+
+async def execute_stdio(
+    actions: Sequence[Action],
+    command: Sequence[str],
+    *,
+    timeout: float = 5.0,
+    after_response: ResponseActions | None = None,
+) -> ExecutionResult:
+    """Execute actions against one stdio peer.
+
+    A response hook can replace the remaining actions at a response barrier.
+    Returning None keeps the current plan.
+    """
+    actions_by_id: dict[str, Action] = {}
+
+    def prepare(action: Action) -> tuple[Action, dict[str, JsonValue] | None]:
         if not isinstance(action, Action):
             raise TypeError("actions must contain Action values")
-        if action.action_id in action_ids:
+        if action.action_id in actions_by_id:
             raise ExecutionProtocolError(
                 f"duplicate internal action_id: {action.action_id}"
             )
-        action_ids.add(action.action_id)
+        actions_by_id[action.action_id] = action
         message = None if action.kind is ActionKind.RESPONSE else _wire_message(action)
-        prepared.append((action, message))
+        return action, message
 
     pending: dict[str, list[str]] = {}
-    actions_by_id = {action.action_id: action for action, _ in prepared}
+    queued = deque(map(prepare, actions))
     remaining_response_count = 0
     events: list[dict[str, JsonValue]] = []
     transport = StdioTransport(command, timeout=timeout)
@@ -70,7 +81,8 @@ async def execute_stdio(
                 return event
 
     async with transport:
-        for action, message in prepared:
+        while queued:
+            action, message = queued.popleft()
             if action.kind is ActionKind.RESPONSE:
                 if remaining_response_count == 0:
                     raise ExecutionProtocolError(
@@ -95,6 +107,11 @@ async def execute_stdio(
                     )
                 ):
                     break
+                if (
+                    after_response is not None
+                    and (following := after_response(event)) is not None
+                ):
+                    queued = deque(map(prepare, following))
                 continue
             if message is None:
                 raise AssertionError("outbound action requires a wire message")
@@ -115,8 +132,12 @@ async def execute_http(
     *,
     headers: Mapping[str, str] | None = None,
     timeout: float = 5.0,
+    after_response: ResponseActions | None = None,
 ) -> ExecutionResult:
-    """Execute canonical actions against one Streamable HTTP endpoint."""
+    """Execute canonical actions against one Streamable HTTP endpoint.
+
+    The response hook has the same semantics as in execute_stdio.
+    """
 
     action_ids: set[str] = set()
     supported = {
@@ -129,7 +150,8 @@ async def execute_http(
         ActionKind.OPEN_STREAM,
         ActionKind.RESUME_STREAM,
     }
-    for action in actions:
+
+    def prepare(action: Action) -> Action:
         if not isinstance(action, Action):
             raise TypeError("actions must contain Action values")
         if action.action_id in action_ids:
@@ -141,9 +163,11 @@ async def execute_http(
                 f"unsupported HTTP action kind: {action.kind.value}"
             )
         action_ids.add(action.action_id)
+        return action
 
+    queued = deque(map(prepare, actions))
     events: list[dict[str, JsonValue]] = []
-    available_responses: list[str | None] = []
+    available_responses: list[dict[str, JsonValue]] = []
     transport = StreamableHTTPTransport(url, headers=headers, timeout=timeout)
     async with transport:
 
@@ -154,7 +178,8 @@ async def execute_http(
             if event["kind"] == "server_request":
                 await transport.send(_server_request_response(event))
 
-        for action in actions:
+        while queued:
+            action = queued.popleft()
             if action.kind is ActionKind.CONNECT:
                 continue
             if action.kind is ActionKind.RESPONSE:
@@ -162,14 +187,19 @@ async def execute_http(
                     raise ExecutionProtocolError(
                         "response barrier has no completed HTTP request"
                     )
-                target_action_id = available_responses.pop(0)
+                response = available_responses.pop(0)
                 if (
                     action.target_action_id is not None
-                    and target_action_id != action.target_action_id
+                    and response["target_action_id"] != action.target_action_id
                 ):
                     raise ExecutionProtocolError(
                         "response barrier received a different HTTP request"
                     )
+                if (
+                    after_response is not None
+                    and (following := after_response(response)) is not None
+                ):
+                    queued = deque(map(prepare, following))
                 continue
             if action.kind in (
                 ActionKind.DISCOVER,
@@ -207,7 +237,7 @@ async def execute_http(
                         raise ExecutionProtocolError(
                             "HTTP response is missing or has a mismatched ID"
                         )
-                    available_responses.append(responses[-1]["target_action_id"])
+                    available_responses.append(responses[-1])
                     if action.kind is ActionKind.INITIALIZE and responses:
                         if responses[-1]["outcome"] != "success":
                             break

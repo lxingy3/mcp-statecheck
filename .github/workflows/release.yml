@@ -1,20 +1,28 @@
-name: Release v0.1.0
+name: Release
 
 on:
-  push:
-    tags: [v0.1.0]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to GitHub and PyPI (requires a matching release tag)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-v0.1.0
+  group: release-${{ github.ref }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.14.1"
@@ -23,8 +31,19 @@ jobs:
           python-version: "3.12.13"
           version: "0.11.28"
       - run: uv sync --locked
-      - name: Verify release version
-        run: test "$(uv version --short)" = "${GITHUB_REF_NAME#v}"
+      - name: Verify package version and release notes
+        id: version
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          version="$(uv version --short)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test -s "docs/releases/v${version}.md"
+          if [ "$PUBLISH" = true ]; then
+            test "$GITHUB_REF" = "refs/tags/v${version}"
+            git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: uv run ruff check src tests scripts
       - run: uv run ruff format --check src tests scripts
       - run: uv run pytest -q
@@ -34,7 +53,7 @@ jobs:
           uv run python scripts/run_m4_acceptance.py
           --output "${{ runner.temp }}/m4/acceptance.json"
           --dist-output dist
-      - run: uvx --from twine==6.2.0 twine check dist/*
+      - run: uvx --from twine==7.0.0 twine check --strict dist/*
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-distributions
@@ -45,12 +64,13 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-notes
-          path: docs/releases/v0.1.0.md
+          path: docs/releases/v${{ steps.version.outputs.version }}.md
           if-no-files-found: error
           overwrite: true
           retention-days: 7
 
   github-release:
+    if: inputs.publish
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -67,22 +87,13 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "mcp-statecheck 0.1.0" \
-              --notes-file release-notes/v0.1.0.md
-            gh release upload "$GITHUB_REF_NAME" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --verify-tag \
-              --title "mcp-statecheck 0.1.0" \
-              --notes-file release-notes/v0.1.0.md
-          fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "mcp-statecheck $VERSION" \
+            --notes-file "release-notes/v${VERSION}.md"
 
   pypi-publish:
     needs: github-release

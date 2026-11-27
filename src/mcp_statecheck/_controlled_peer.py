@@ -32,8 +32,10 @@ def _initialize_result(protocol_version: str) -> dict[str, Any]:
 INITIALIZE_RESULT = _initialize_result("2025-11-25")
 MODERN_PROTOCOL_VERSION = "2026-07-28"
 SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo"
-MODERN_SDK_MODES = {"sdk-modern-hang", "sdk-modern-smoke"}
-SDK_MODES = {"sdk-hang", "sdk-smoke", *MODERN_SDK_MODES}
+MODERN_SDK_MODES = {"sdk-modern-hang", "sdk-modern-smoke", "sdk-modern-paged"}
+PAGED_MODES = {"sdk-paged", "sdk-modern-paged"}
+TOOL_PAGE_CURSOR = "fixture/tool-directory:next"
+SDK_MODES = {"sdk-hang", "sdk-smoke", *PAGED_MODES, *MODERN_SDK_MODES}
 OBSERVED_STDIO_MODES = SDK_MODES | {
     "initialize-error",
     "initialize-invalid-result",
@@ -180,14 +182,40 @@ class PeerState:
                 if self.mode in SDK_MODES
                 else []
             )
+            result = {"tools": tools}
+            if self.mode in PAGED_MODES:
+                cursor = (message.get("params") or {}).get("cursor")
+                if cursor is None:
+                    result["nextCursor"] = ""
+                elif cursor == "":
+                    result = {
+                        "tools": [
+                            {"name": "status", "inputSchema": {"type": "object"}}
+                        ],
+                        "nextCursor": TOOL_PAGE_CURSOR,
+                    }
+                elif cursor == TOOL_PAGE_CURSOR:
+                    result = {
+                        "tools": [
+                            {"name": "version", "inputSchema": {"type": "object"}}
+                        ]
+                    }
+                else:
+                    return [
+                        {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {"code": -32602, "message": "unknown tools page"},
+                        }
+                    ]
             response = (
                 _modern_result(
                     request_id,
-                    {"tools": tools},
+                    result,
                     cacheable=True,
                 )
                 if self.mode in MODERN_SDK_MODES
-                else _result(request_id, {"tools": tools})
+                else _result(request_id, result)
             )
             if self.mode == "unknown-response-id":
                 return [_result(999, {}), response]
