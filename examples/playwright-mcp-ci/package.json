@@ -1,0 +1,8 @@
+{
+  "name": "playwright-mcp-catalog-example",
+  "private": true,
+  "dependencies": {
+    "playwright-mcp-baseline": "npm:@playwright/mcp@0.0.82",
+    "playwright-mcp-candidate": "npm:@playwright/mcp@0.0.83"
+  }
+}

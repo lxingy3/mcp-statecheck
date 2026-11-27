@@ -88,6 +88,10 @@ order. It compares schema structure as saved in the redacted artifacts. For
 example, rearranging an enum array can register as a change even if both
 schemas accept the same inputs.
 
+The [Playwright MCP CI example](examples/playwright-mcp-ci/) uses the
+published CLI and two real server releases to show a clean repeat and a
+tool schema change in GitHub Actions.
+
 ## What works today
 
 | Area | Current implementation |
