@@ -13,15 +13,17 @@ PROTOCOL = "2025-11-25"
 CLI = Path(sys.executable).with_name(
     "mcp-statecheck.exe" if os.name == "nt" else "mcp-statecheck"
 )
+# Keep unrelated runner credentials out of the checker and the server.
+RUNTIME_ENV = {
+    key: value
+    for key, value in os.environ.items()
+    if key.upper()
+    in {"HOME", "PATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "USERPROFILE", "WINDIR"}
+}
 
 
 def capture(package: str, report: Path, workdir: Path) -> None:
     cli = EXAMPLE / "node_modules" / package / "cli.js"
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.upper().startswith("PLAYWRIGHT_MCP_")
-    }
     subprocess.run(
         [
             str(CLI),
@@ -40,7 +42,7 @@ def capture(package: str, report: Path, workdir: Path) -> None:
         ],
         check=True,
         cwd=workdir,
-        env=env,
+        env=RUNTIME_ENV,
         timeout=60,
     )
 
@@ -57,6 +59,7 @@ def compare(
         [str(CLI), "compare", str(baseline), str(candidate)],
         capture_output=True,
         encoding="utf-8",
+        env=RUNTIME_ENV,
         timeout=30,
     )
     if result.stdout:
@@ -94,7 +97,7 @@ def main() -> None:
     repeat = output / "repeat.json"
     candidate = output / "candidate.json"
 
-    subprocess.run([str(CLI), "--version"], check=True, timeout=30)
+    subprocess.run([str(CLI), "--version"], check=True, env=RUNTIME_ENV, timeout=30)
     with TemporaryDirectory(prefix="playwright-mcp-catalog-") as workdir:
         capture("playwright-mcp-baseline", baseline, Path(workdir))
         capture("playwright-mcp-baseline", repeat, Path(workdir))

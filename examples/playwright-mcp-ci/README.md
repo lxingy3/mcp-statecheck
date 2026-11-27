@@ -21,6 +21,10 @@ pin selects 3.12.13. The check uses a temporary working directory and reads
 the exposed tool catalog. It needs no browser binaries, credentials, or
 running browser.
 
+The script gives both the checker and the server a minimal runtime
+environment. This keeps unrelated runner credentials from changing the
+redaction of text in the saved schemas.
+
 ## What the job checks
 
 | Comparison | `compare` exit | Expected result |
