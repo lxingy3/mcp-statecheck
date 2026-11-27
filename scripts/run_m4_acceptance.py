@@ -887,6 +887,7 @@ def _accept(
             for profile, options in (
                 ("m6-sdk-subscriptions", []),
                 ("m6-sdk-subscription-lifecycle", ["--lifecycle"]),
+                ("m6-sdk-concurrent-subscriptions", ["--concurrent"]),
             ):
                 sdk_output = work / f"{profile}-{package_kind}.json"
                 _run(
@@ -1226,6 +1227,13 @@ def _accept(
                 "status": "passed",
                 "working_directory_isolated": True,
             },
+            "sdk_concurrent_subscriptions": {
+                "cells": 8,
+                "identical_runs": 2,
+                "installs": ["wheel", "sdist"],
+                "status": "passed",
+                "working_directory_isolated": True,
+            },
             "replay": {
                 "attempts_per_fixture": 10,
                 "fixtures": len(REPLAY_FIXTURES),
@@ -1287,7 +1295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "and Streamable HTTP checks, five installed replays, 16 installed "
             "legacy matrix cells, four installed modern matrix cells, twelve installed Tasks and twelve "
             "subscription replays, two subscription lifecycle and two SDK "
-            "subscription delivery/lifecycle installations, and four "
+            "subscription delivery/lifecycle/concurrency installations, and four "
             "report formats per transport; "
             f"wrote {args.output}"
         )

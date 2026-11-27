@@ -73,6 +73,7 @@ tool, verifies response shapes, and confirms transport cleanup.
 | M6.4 subscription lifecycle | Controlled stdio cancellation, HTTP SSE closure, abrupt disconnect and re-subscription on both transports, plus a ten-run late-delivery fault |
 | M6.5 SDK subscriptions | Pinned Python and TypeScript clients exercise their native `listen` APIs over both transports, checking delivery and graceful completion in four cells |
 | M6.6 SDK subscription lifecycle | Eight native-client cells cover cancellation, abrupt drops, explicit re-subscription, and tool-list refetch across both transports |
+| M6.7 concurrent SDK subscriptions | Eight cells keep two native subscriptions open and check that cancelling either one preserves the other's delivery |
 
 ```mermaid
 flowchart LR
@@ -349,6 +350,23 @@ Python reports `SubscriptionLost` on a drop, while TypeScript resolves
 `closed` to `"remote"`. This gate covers explicit client recovery against
 controlled peers, not automatic retry, event replay, or arbitrary servers.
 
+M6.7 opens a tool-list subscription and a resource subscription on the same
+client. Both receive an event while open. After either subscription is
+cancelled, the other receives another event and completes gracefully.
+
+```console
+uv run python -m mcp_statecheck.sdk_subscription_acceptance --concurrent --check
+```
+
+The [M6.7 acceptance report](artifacts/m6-sdk-concurrent-subscriptions/acceptance.json)
+contains eight cells: two pinned SDKs, two transports, and both cancellation
+orders. Two runs must match exactly. Controlled `tools/list` requests trigger
+delivery, and the second delivery waits for the peer to observe the specific
+cancellation. The gate checks honored filters, resource URIs, distinct IDs,
+delivery before and after cancellation, and each subscription's termination.
+It covers two subscriptions with different filters; load, overlapping filters,
+and arbitrary cancellation races remain separate work.
+
 ## Reports and CI integration
 
 Saved traces are the single JSON source of truth. Reports validate schema v1,
@@ -507,7 +525,7 @@ execution boundaries.
 | M3 | Complete | 16/16 real SDK client cells across stdio and Streamable HTTP, with exact differential traces and cleanup probes |
 | M4 | Complete | Quick-check CLI, controlled replay, reports, Action, clean-package acceptance, documentation, and the v0.1 gate |
 | M5 | In progress (M5.3 complete) | Pinned external canary plus versioned Filesystem/Git application-state recipes; upstream feedback requires a reproducible finding |
-| M6 | In progress (M6.6 complete) | Modern SDK baseline, generated Tasks, controlled subscription delivery/lifecycle, and native SDK delivery/cancellation/recovery; SDK-native Tasks and arbitrary-server deep coverage remain planned |
+| M6 | In progress (M6.7 complete) | Modern SDK baseline, generated Tasks, controlled subscription delivery/lifecycle, and native SDK delivery/cancellation/recovery/concurrency; SDK-native Tasks and arbitrary-server deep coverage remain planned |
 
 The exact v0.1 benchmark, limitations, and acceptance evidence are recorded in
 the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md).
@@ -545,6 +563,7 @@ the [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0
 - [M6.4 subscription lifecycle acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-subscription-lifecycle/acceptance.json)
 - [M6.5 SDK subscription acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-sdk-subscriptions/acceptance.json)
 - [M6.6 SDK subscription lifecycle acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-sdk-subscription-lifecycle/acceptance.json)
+- [M6.7 concurrent SDK subscription acceptance](https://github.com/lxingy3/mcp-statecheck/blob/main/artifacts/m6-sdk-concurrent-subscriptions/acceptance.json)
 - [v0.1.0 release notes](https://github.com/lxingy3/mcp-statecheck/blob/v0.1.0/docs/releases/v0.1.0.md)
 
 ## License

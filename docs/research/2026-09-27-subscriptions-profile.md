@@ -89,3 +89,24 @@ The report distinguishes local cancellation from the SDK's loss outcome and
 from the replacement's graceful completion. This is bounded client-side
 recovery evidence, without automatic retry, missed-event replay, or SDK-server
 coverage.
+
+## M6.7 concurrent isolation follow-up (2026-11-05)
+
+The [multiple-subscription contract](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/patterns/subscriptions.mdx#multiple-concurrent-subscriptions)
+allows simultaneous streams and correlates each notification with its listen
+request ID. Acknowledgment ordering is per subscription. Cancellation names one
+request on stdio or closes one response stream on HTTP.
+
+M6.7 exercises the same locked SDK versions with two different filters on a
+single client. The peer acknowledges both streams, emits one event on each,
+then waits for one specific cancellation before delivering another event and
+graceful completion to the surviving stream. Both cancellation orders run on
+both transports. `tools/list` acts as an explicit delivery barrier; timestamps
+and sleeps do not decide whether the second event precedes cancellation.
+
+Python checks native iterator isolation. TypeScript checks the native handles'
+closure outcomes and the IDs attached to its shared notification callbacks,
+using public transport observation to associate IDs with the two listen calls.
+The test does not replace either SDK's routing or cancellation implementation.
+Two eight-cell runs match exactly. Overlapping filters, more than two live
+subscriptions, and arbitrary scheduling races need separate evidence.

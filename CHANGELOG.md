@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added eight concurrent native SDK subscription cells covering two distinct
+  filters, both cancellation orders, and continued delivery to the surviving
+  subscription, including CI and clean wheel/sdist acceptance.
 - Added eight pinned SDK subscription lifecycle cells for native cancellation,
   abrupt-drop detection, explicit re-subscription, and tool-list refetch, with
   clean wheel/sdist acceptance and CI coverage.

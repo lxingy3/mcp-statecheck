@@ -5,15 +5,68 @@ from __future__ import annotations
 import json
 import platform
 import sys
+from contextlib import AsyncExitStack
 from importlib.metadata import version
 from urllib.parse import urlsplit
 
 import anyio
 from mcp import Client, StdioServerParameters
-from mcp.client.subscriptions import SubscriptionLost
+from mcp.client.subscriptions import ResourceUpdated, SubscriptionLost
 from mcp.types import Implementation
 
 PROTOCOL = "2026-07-28"
+RESOURCE = "file:///controlled/config.json"
+
+
+def _event(event: object) -> dict:
+    result = {"type": type(event).__name__}
+    if isinstance(event, ResourceUpdated):
+        result["uri"] = event.uri
+    return result
+
+
+async def _concurrent(client: Client, cancelled_index: int) -> dict:
+    async with AsyncExitStack() as stack:
+        closers = [AsyncExitStack(), AsyncExitStack()]
+        for closer in closers:
+            stack.push_async_callback(closer.aclose)
+        subscriptions = [
+            await closers[0].enter_async_context(
+                client.listen(tools_list_changed=True)
+            ),
+            await closers[1].enter_async_context(
+                client.listen(resource_subscriptions=[RESOURCE])
+            ),
+        ]
+        if subscriptions[0].subscription_id == subscriptions[1].subscription_id:
+            raise RuntimeError("concurrent subscriptions reused an ID")
+        await client.list_tools(cache_mode="refresh")
+        rows = [
+            {
+                "honored_filter": sub.honored.model_dump(
+                    by_alias=True, exclude_none=True
+                ),
+                "before_cancel": [_event(await anext(sub))],
+                "after_cancel": [],
+            }
+            for sub in subscriptions
+        ]
+        await closers[cancelled_index].aclose()
+        if await anext(subscriptions[cancelled_index], None) is not None:
+            raise RuntimeError("cancelled subscription continued delivering")
+        rows[cancelled_index]["termination"] = "local"
+        tools = await client.list_tools(cache_mode="refresh")
+        survivor = 1 - cancelled_index
+        rows[survivor]["after_cancel"] = [_event(await anext(subscriptions[survivor]))]
+        if await anext(subscriptions[survivor], None) is not None:
+            raise RuntimeError("surviving subscription delivered extra events")
+        rows[survivor]["termination"] = "graceful"
+    return {
+        "distinct_ids": True,
+        "cancelled_index": cancelled_index,
+        "subscriptions": rows,
+        "refetched_tools": [tool.name for tool in tools.tools],
+    }
 
 
 async def _listen(client: Client, *, cancel: bool = False) -> dict:
@@ -68,7 +121,10 @@ async def _probe(transport: str, target: list[str] | str, scenario: str) -> dict
         if client.protocol_version != PROTOCOL:
             raise RuntimeError("Python SDK did not negotiate the modern protocol")
         with anyio.fail_after(10):
-            result = await _listen(client, cancel=scenario == "cancel")
+            if scenario in {"concurrent-first", "concurrent-second"}:
+                result = await _concurrent(client, int(scenario == "concurrent-second"))
+            else:
+                result = await _listen(client, cancel=scenario == "cancel")
             if scenario == "cancel":
                 result["replacement"] = await _listen(client)
             if scenario in {"cancel", "refetch"}:
@@ -90,7 +146,13 @@ async def run(command: dict) -> dict:
         keys.add("scenario")
     if scenario == "drop":
         keys.add("recovery_target")
-    if set(command) != keys or scenario not in {"graceful", "cancel", "drop"}:
+    if set(command) != keys or scenario not in {
+        "graceful",
+        "cancel",
+        "drop",
+        "concurrent-first",
+        "concurrent-second",
+    }:
         raise ValueError("invalid subscription probe command")
     result = await _probe(command["transport"], command["target"], scenario)
     if scenario == "drop":

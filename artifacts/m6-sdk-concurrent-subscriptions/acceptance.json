@@ -1,0 +1,350 @@
+{
+  "cells": {
+    "python-v2/stdio/concurrent-first": {
+      "cancelled_index": 0,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "subscriptions": [
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "ToolsListChanged"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "local"
+        },
+        {
+          "after_cancel": [
+            {
+              "type": "ResourceUpdated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "ResourceUpdated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "graceful"
+        }
+      ]
+    },
+    "python-v2/stdio/concurrent-second": {
+      "cancelled_index": 1,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "subscriptions": [
+        {
+          "after_cancel": [
+            {
+              "type": "ToolsListChanged"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "ToolsListChanged"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "graceful"
+        },
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "ResourceUpdated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "local"
+        }
+      ]
+    },
+    "python-v2/streamable-http/concurrent-first": {
+      "cancelled_index": 0,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "subscriptions": [
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "ToolsListChanged"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "local"
+        },
+        {
+          "after_cancel": [
+            {
+              "type": "ResourceUpdated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "ResourceUpdated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "graceful"
+        }
+      ]
+    },
+    "python-v2/streamable-http/concurrent-second": {
+      "cancelled_index": 1,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "3.12.13",
+      "sdk_version": "2.1.1",
+      "subscriptions": [
+        {
+          "after_cancel": [
+            {
+              "type": "ToolsListChanged"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "ToolsListChanged"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "graceful"
+        },
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "ResourceUpdated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "local"
+        }
+      ]
+    },
+    "typescript-v2/stdio/concurrent-first": {
+      "cancelled_index": 0,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "subscriptions": [
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "notifications/tools/list_changed"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "local"
+        },
+        {
+          "after_cancel": [
+            {
+              "type": "notifications/resources/updated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "notifications/resources/updated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "graceful"
+        }
+      ]
+    },
+    "typescript-v2/stdio/concurrent-second": {
+      "cancelled_index": 1,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "subscriptions": [
+        {
+          "after_cancel": [
+            {
+              "type": "notifications/tools/list_changed"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "notifications/tools/list_changed"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "graceful"
+        },
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "notifications/resources/updated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "local"
+        }
+      ]
+    },
+    "typescript-v2/streamable-http/concurrent-first": {
+      "cancelled_index": 0,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "subscriptions": [
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "notifications/tools/list_changed"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "local"
+        },
+        {
+          "after_cancel": [
+            {
+              "type": "notifications/resources/updated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "notifications/resources/updated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "graceful"
+        }
+      ]
+    },
+    "typescript-v2/streamable-http/concurrent-second": {
+      "cancelled_index": 1,
+      "client_closed": true,
+      "distinct_ids": true,
+      "protocol_version": "2026-07-28",
+      "refetched_tools": [],
+      "runtime_version": "24.14.1",
+      "sdk_version": "2.0.0",
+      "subscriptions": [
+        {
+          "after_cancel": [
+            {
+              "type": "notifications/tools/list_changed"
+            }
+          ],
+          "before_cancel": [
+            {
+              "type": "notifications/tools/list_changed"
+            }
+          ],
+          "honored_filter": {
+            "toolsListChanged": true
+          },
+          "termination": "graceful"
+        },
+        {
+          "after_cancel": [],
+          "before_cancel": [
+            {
+              "type": "notifications/resources/updated",
+              "uri": "file:///controlled/config.json"
+            }
+          ],
+          "honored_filter": {
+            "resourceSubscriptions": [
+              "file:///controlled/config.json"
+            ]
+          },
+          "termination": "local"
+        }
+      ]
+    }
+  },
+  "milestone": "M6.7",
+  "profile": "sdk-native-concurrent-subscriptions",
+  "protocol_version": "2026-07-28",
+  "runs": 2,
+  "schema_version": 1,
+  "status": "passed"
+}

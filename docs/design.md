@@ -15,6 +15,7 @@ M6.3 adds controlled subscription delivery checks. M6.4 adds a controlled
 cancellation and reconnect lifecycle gate. M6.5 checks native subscription
 delivery and graceful completion in pinned Python and TypeScript SDK clients.
 M6.6 adds native cancellation and explicit recovery after abrupt drops.
+M6.7 checks cancellation isolation between two concurrent native subscriptions.
 SDK-native Tasks and other agent protocols remain outside scope.
 
 The official MCP conformance framework remains the source for fixed
@@ -389,6 +390,32 @@ Eight cells produce identical reports across two runs and from clean wheel
 and sdist installations. The original M6.5 report remains unchanged. These
 checks do not cover automatic retry, replay of missed events, concurrent
 subscriptions, SDK servers, or arbitrary-target conformance.
+
+## M6.7 concurrent SDK subscription gate
+
+One pinned client opens two subscriptions: tool-list changes and updates to a
+controlled resource URI. Both stay open after acknowledgment. The first
+`tools/list` request triggers one event per stream; stdio deliberately emits
+them in reverse subscription order, while HTTP uses independent SSE responses.
+After the adapter cancels either subscription through the native API, another
+`tools/list` request triggers a second event and graceful completion only for
+the survivor. The peer waits until both that request and the cancellation have
+arrived, so the test does not depend on cancellation callback scheduling.
+
+Python consumes the two native subscription iterators separately and checks
+that the cancelled iterator ends. TypeScript exposes change notifications
+through shared handlers: its adapter records IDs at the public transport send
+boundary, checks notification metadata against those IDs, and observes each
+native handle's `closed` outcome. SDK request generation, delivery, and
+cancellation remain intact. Both adapters check the honored filters, resource
+URI, events on each side of cancellation, and an ordinary tool-list response.
+
+A small stateful peer drives both transports. Negative tests reject malformed
+filters, duplicate IDs, excess subscriptions, and cancellation of both streams;
+integer and string IDs remain distinct. The eight-cell report must repeat
+identically and is regenerated from clean wheel and sdist installations. This
+profile is bounded to two subscriptions with different filters. It does not
+cover overlapping filters, load, all cancellation races, or arbitrary servers.
 
 ## v0.1 release gate
 
